@@ -56,8 +56,9 @@ void UA_SecureChannel_attachSession(UA_SecureChannel *channel, UA_Session *sessi
 void UA_SecureChannel_detachSession(UA_SecureChannel *channel, UA_Session *session);
 UA_Session * UA_SecureChannel_getSession(UA_SecureChannel *channel, UA_NodeId *token);
 
-UA_StatusCode UA_SecureChannel_sendBinaryMessage(UA_SecureChannel *channel, UA_UInt32 requestId,
-                                                  const void *content, const UA_DataType *contentType);
+UA_StatusCode
+UA_SecureChannel_sendBinaryMessage(UA_SecureChannel *channel, UA_UInt32 requestId, const void *content,
+                                   const UA_DataType *contentType, UA_UInt32 MessageType);
 
 void UA_SecureChannel_revolveTokens(UA_SecureChannel *channel);
 

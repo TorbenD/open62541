@@ -106,6 +106,7 @@ option(UA_ENABLE_METHODCALLS "Enable the Method service set" ON)
 option(UA_ENABLE_NODEMANAGEMENT "Enable dynamic addition and removal of nodes" ON)
 option(UA_ENABLE_SUBSCRIPTIONS "Enable subscriptions support." ON)
 option(UA_ENABLE_MULTITHREADING "Enable multithreading" OFF)
+option(UA_ENABLE_SERVENT "Enable servent" OFF)
 option(UA_ENABLE_AMALGAMATION "Concatenate the library to a single file open62541.h/.c" OFF)
 option(UA_ENABLE_COVERAGE "Enable gcov coverage" OFF)
 if(UA_ENABLE_COVERAGE)
@@ -232,6 +233,11 @@ set(lib_sources ${PROJECT_SOURCE_DIR}/src/ua_types.c
 
 if(UA_ENABLE_EMBEDDED_LIBC)
   list(APPEND lib_sources ${PROJECT_SOURCE_DIR}/deps/libc_string.c)
+endif()
+
+if(UA_ENABLE_SERVENT)
+  list(APPEND internal_headers ${PROJECT_SOURCE_DIR}/include/ua_servent.h)
+  list(APPEND lib_sources ${PROJECT_SOURCE_DIR}/src/ua_servent.c)
 endif()
 
 if(UA_ENABLE_GENERATE_NAMESPACE0)

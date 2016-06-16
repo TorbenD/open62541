@@ -311,7 +311,7 @@ Service_Publish(UA_Server *server, UA_Session *session,
         response.responseHeader.requestHandle = request->requestHeader.requestHandle;
         response.responseHeader.serviceResult = UA_STATUSCODE_BADNOSUBSCRIPTION;
         UA_SecureChannel_sendBinaryMessage(session->channel, requestId, &response,
-                                           &UA_TYPES[UA_TYPES_PUBLISHRESPONSE]);
+                                           &UA_TYPES[UA_TYPES_PUBLISHRESPONSE], UA_RORTYPE_RESPONSE);
         return;
     }
 

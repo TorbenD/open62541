@@ -333,7 +333,7 @@ void UA_Subscription_publishCallback(UA_Server *server, UA_Subscription *sub) {
     UA_LOG_DEBUG_SESSION(server->config.logger, sub->session,
                          "Sending out a publish response with %u notifications", (UA_UInt32)notifications);
     UA_SecureChannel_sendBinaryMessage(sub->session->channel, requestId, response,
-                                       &UA_TYPES[UA_TYPES_PUBLISHRESPONSE]);
+                                       &UA_TYPES[UA_TYPES_PUBLISHRESPONSE], UA_RORTYPE_RESPONSE);
 
     /* Remove the queued request */
     UA_NotificationMessage_init(&response->notificationMessage); /* message was copied to the queue */

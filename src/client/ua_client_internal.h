@@ -4,6 +4,10 @@
 #include "ua_securechannel.h"
 #include "queue.h"
 
+
+#ifdef UA_ENABLE_SERVENT
+	#include "ua_servent.h"
+#endif
 /**************************/
 /* Subscriptions Handling */
 /**************************/
@@ -80,6 +84,10 @@ struct UA_Client {
     /* Config */
     UA_ClientConfig config;
     UA_DateTime scRenewAt;
+
+#ifdef UA_ENABLE_SERVENT
+    UA_Servent *servent;
+#endif
 };
 
 #endif /* UA_CLIENT_INTERNAL_H_ */
