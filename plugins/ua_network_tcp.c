@@ -230,19 +230,6 @@ static void FreeConnectionCallback(UA_Server *server, void *ptr) {
 
 #define MAXBACKLOG 100
 
-typedef struct {
-    UA_ConnectionConfig conf;
-    UA_UInt16 port;
-    UA_Logger logger; // Set during start
-
-    /* open sockets and connections */
-    UA_Int32 serversockfd;
-    size_t mappingsSize;
-    struct ConnectionMapping {
-        UA_Connection *connection;
-        UA_Int32 sockfd;
-    } *mappings;
-} ServerNetworkLayerTCP;
 
 static UA_StatusCode
 ServerNetworkLayerGetSendBuffer(UA_Connection *connection, size_t length, UA_ByteString *buf) {
@@ -298,7 +285,7 @@ ServerNetworkLayerTCP_closeConnection(UA_Connection *connection) {
 }
 
 /* call only from the single networking thread */
-static UA_StatusCode
+UA_StatusCode
 ServerNetworkLayerTCP_add(ServerNetworkLayerTCP *layer, UA_Int32 newsockfd) {
     UA_Connection *c = malloc(sizeof(UA_Connection));
     if(!c)

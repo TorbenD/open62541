@@ -93,7 +93,7 @@ UA_ClientState UA_EXPORT UA_Client_getState(UA_Client *client) {
 
 static UA_StatusCode HelAckHandshake(UA_Client *client) {
     UA_TcpMessageHeader messageHeader;
-    messageHeader.messageTypeAndChunkType = UA_CHUNKTYPE_FINAL + UA_MESSAGETYPE_HEL;
+    messageHeader.messageTypeAndChunkType = UA_RORTYPE_REQUEST + UA_CHUNKTYPE_FINAL + UA_MESSAGETYPE_HEL;
 
     UA_TcpHelloMessage hello;
     UA_String_copy(&client->endpointUrl, &hello.endpointUrl); /* must be less than 4096 bytes */
@@ -181,7 +181,7 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
         return UA_STATUSCODE_BADSERVERNOTCONNECTED;
 
     UA_SecureConversationMessageHeader messageHeader;
-    messageHeader.messageHeader.messageTypeAndChunkType = UA_MESSAGETYPE_OPN + UA_CHUNKTYPE_FINAL;
+    messageHeader.messageHeader.messageTypeAndChunkType = UA_RORTYPE_REQUEST + UA_MESSAGETYPE_OPN + UA_CHUNKTYPE_FINAL;
     if(renew)
         messageHeader.secureChannelId = client->channel.securityToken.channelId;
     else
@@ -246,15 +246,39 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
     UA_ByteString reply;
     UA_ByteString_init(&reply);
     UA_Boolean realloced = false;
-    do {
-        retval = c->recv(c, &reply, client->config.timeout);
-        retval |= UA_Connection_completeMessages(c, &reply, &realloced);
-        if(retval != UA_STATUSCODE_GOOD) {
-            UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL,
-                         "Receiving OpenSecureChannelResponse failed");
-            return retval;
-        }
-    } while(reply.length == 0);
+#ifdef UA_ENABLE_SERVENT
+    if (client->servent->transfer == UA_TRUE)
+		{
+		retval = GetWorkFromNetworklayerServent (client->servent, (UA_UInt16)client->config.timeout);
+		reply = client->servent->networklayerjobs[0].clientjobs[0].job.binaryMessage.message;
+		}
+	else
+		{
+		do {
+			retval = c->recv(c, &reply, client->config.timeout);
+			retval |= UA_Connection_completeMessages(c, &reply, &realloced);
+			if(retval != UA_STATUSCODE_GOOD)
+				{
+				UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL,
+							 "Receiving OpenSecureChannelResponse failed");
+				return retval;
+				}
+			}
+		while(reply.length == 0);
+		}
+#else
+		do {
+			retval = c->recv(c, &reply, client->config.timeout);
+			retval |= UA_Connection_completeMessages(c, &reply, &realloced);
+			if(retval != UA_STATUSCODE_GOOD)
+				{
+				UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL,
+							 "Receiving OpenSecureChannelResponse failed");
+				return retval;
+				}
+			}
+		while(reply.length == 0);
+#endif
 
     offset = 0;
     UA_SecureConversationMessageHeader_decodeBinary(&reply, &offset, &messageHeader);
@@ -497,7 +521,7 @@ static UA_StatusCode CloseSecureChannel(UA_Client *client) {
     request.requestHeader.authenticationToken = client->authenticationToken;
 
     UA_SecureConversationMessageHeader msgHeader;
-    msgHeader.messageHeader.messageTypeAndChunkType = UA_MESSAGETYPE_CLO + UA_CHUNKTYPE_FINAL;
+    msgHeader.messageHeader.messageTypeAndChunkType = UA_RORTYPE_REQUEST + UA_MESSAGETYPE_CLO + UA_CHUNKTYPE_FINAL;
     msgHeader.secureChannelId = client->channel.securityToken.channelId;
 
     UA_SymmetricAlgorithmSecurityHeader symHeader;
@@ -628,6 +652,37 @@ UA_Client_connect(UA_Client *client, const char *endpointUrl) {
     return retval;
 }
 
+
+UA_StatusCode
+UA_Client_connect_Session(UA_Client *client)
+	{
+    if(client->state == UA_CLIENTSTATE_CONNECTED)
+        return UA_STATUSCODE_GOOD;
+    if(client->state == UA_CLIENTSTATE_ERRORED)
+    	{
+        UA_Client_reset(client);
+    	}
+
+    UA_StatusCode retval = SessionHandshake(client);
+    if(retval == UA_STATUSCODE_GOOD)
+        retval = ActivateSession(client);
+    if(retval == UA_STATUSCODE_GOOD)
+    	{
+        client->connection.state = UA_CONNECTION_ESTABLISHED;
+        client->state = UA_CLIENTSTATE_CONNECTED;
+    	}
+    else
+    	{
+        goto cleanup;
+    	}
+    return retval;
+
+    cleanup:
+    UA_Client_reset(client);
+    return retval;
+	}
+
+
 UA_StatusCode UA_Client_disconnect(UA_Client *client) {
     if(client->state != UA_CLIENTSTATE_CONNECTED)
         return UA_STATUSCODE_BADNOTCONNECTED;
@@ -678,7 +733,7 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
     UA_UInt32 requestId = ++client->requestId;
     UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_CLIENT,
                  "Sending a request of type %i", requestType->typeId.identifier.numeric);
-    retval = UA_SecureChannel_sendBinaryMessage(&client->channel, requestId, request, requestType);
+    retval = UA_SecureChannel_sendBinaryMessage(&client->channel, requestId, request, requestType, UA_RORTYPE_REQUEST);
     if(retval != UA_STATUSCODE_GOOD) {
         if(retval == UA_STATUSCODE_BADENCODINGLIMITSEXCEEDED)
             respHeader->serviceResult = UA_STATUSCODE_BADREQUESTTOOLARGE;
@@ -693,15 +748,44 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
     UA_ByteString reply;
     UA_ByteString_init(&reply);
     UA_Boolean realloced = false;
-    do {
-        retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
-        retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
-        if(retval != UA_STATUSCODE_GOOD) {
-            respHeader->serviceResult = retval;
-            client->state = UA_CLIENTSTATE_ERRORED;
-            return;
-        }
-    } while(!reply.data);
+#ifdef UA_ENABLE_SERVENT
+    if (client->servent->transfer == UA_TRUE)
+		{
+		retval = GetWorkFromNetworklayerServent (client->servent, (UA_UInt16)client->config.timeout);
+		if (client->servent->networklayerjobs[0].clientJobsSize > 0)
+			{
+			reply = client->servent->networklayerjobs[0].clientjobs[0].job.binaryMessage.message;
+			client->servent->networklayerjobs[0].clientJobsSize = 0;
+			UA_free (client->servent->networklayerjobs[0].clientjobs);
+			}
+		}
+	else
+		{
+		do {
+			retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
+			retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
+			if(retval != UA_STATUSCODE_GOOD)
+				{
+				respHeader->serviceResult = retval;
+				client->state = UA_CLIENTSTATE_ERRORED;
+				return;
+				}
+			}
+		while(!reply.data);
+		}
+#else
+		do {
+			retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
+			retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
+			if(retval != UA_STATUSCODE_GOOD)
+				{
+				respHeader->serviceResult = retval;
+				client->state = UA_CLIENTSTATE_ERRORED;
+				return;
+				}
+			}
+		while(!reply.data);
+#endif
 
     size_t offset = 0;
     UA_SecureConversationMessageHeader msgHeader;

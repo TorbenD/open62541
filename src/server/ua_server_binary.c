@@ -7,6 +7,10 @@
 #include "ua_transport_generated.h"
 #include "ua_transport_generated_encoding_binary.h"
 
+#ifdef UA_ENABLE_SERVENT
+	#include "ua_servent.h"
+#endif
+
 /********************/
 /* Helper Functions */
 /********************/
@@ -28,7 +32,7 @@ sendError(UA_SecureChannel *channel, const UA_ByteString *msg, size_t offset, co
     UA_ResponseHeader *responseHeader = (UA_ResponseHeader*)response;
     init_response_header(&requestHeader, responseHeader);
     responseHeader->serviceResult = error;
-    UA_SecureChannel_sendBinaryMessage(channel, requestId, response, responseType);
+    UA_SecureChannel_sendBinaryMessage(channel, requestId, response, responseType, UA_RORTYPE_RESPONSE);
     UA_RequestHeader_deleteMembers(&requestHeader);
     UA_ResponseHeader_deleteMembers(responseHeader);
 }
@@ -40,7 +44,7 @@ static UA_ByteString processChunk(UA_SecureChannel *channel, UA_Server *server,
                                   const UA_ByteString *msg, size_t offset, size_t chunksize,
                                   UA_Boolean *deleteRequest) {
     UA_ByteString bytes = UA_BYTESTRING_NULL;
-    switch(messageHeader->messageTypeAndChunkType & 0xff000000) {
+    switch(messageHeader->messageTypeAndChunkType & 0x4f000000) {
     case UA_CHUNKTYPE_INTERMEDIATE:
         UA_LOG_TRACE_CHANNEL(server->config.logger, channel, "Chunk message");
         UA_SecureChannel_appendChunk(channel, requestId, msg, offset, chunksize);
@@ -249,7 +253,7 @@ static void processHEL(UA_Connection *connection, const UA_ByteString *msg, size
     ackMessage.maxChunkCount = connection->localConf.maxChunkCount;
 
     UA_TcpMessageHeader ackHeader;
-    ackHeader.messageTypeAndChunkType = UA_MESSAGETYPE_ACK + UA_CHUNKTYPE_FINAL;
+    ackHeader.messageTypeAndChunkType = UA_RORTYPE_RESPONSE + UA_MESSAGETYPE_ACK + UA_CHUNKTYPE_FINAL;
     ackHeader.messageSize = 8 + 20; /* ackHeader + ackMessage */
 
     UA_ByteString ack_msg;
@@ -353,7 +357,7 @@ static void processOPN(UA_Connection *connection, UA_Server *server, const UA_By
 
     /* Encode the secureconversationmessageheader */
     UA_SecureConversationMessageHeader respHeader;
-    respHeader.messageHeader.messageTypeAndChunkType = UA_MESSAGETYPE_OPN + UA_CHUNKTYPE_FINAL;
+    respHeader.messageHeader.messageTypeAndChunkType = UA_RORTYPE_RESPONSE + UA_MESSAGETYPE_OPN + UA_CHUNKTYPE_FINAL;
     respHeader.messageHeader.messageSize = (UA_UInt32)tmpPos;
     respHeader.secureChannelId = p.securityToken.channelId;
     tmpPos = 0;
@@ -446,6 +450,9 @@ processRequest(UA_SecureChannel *channel, UA_Server *server, UA_UInt32 requestId
             return;
         }
         Service_ActivateSession(server, channel, session, request, response);
+#ifdef UA_ENABLE_SERVENT
+        server->servent->transfer2 = UA_TRUE;
+#endif
         goto send_response;
     }
 
@@ -501,10 +508,9 @@ processRequest(UA_SecureChannel *channel, UA_Server *server, UA_UInt32 requestId
  send_response:
     /* Send the response */
     init_response_header(request, response);
-    retval = UA_SecureChannel_sendBinaryMessage(channel, requestId, response, responseType);
-    if(retval != UA_STATUSCODE_GOOD)
-        UA_LOG_INFO_CHANNEL(server->config.logger, channel, "Could not send the message over "
-                             "the SecureChannel with error code 0x%08x", retval);
+    retval = UA_SecureChannel_sendBinaryMessage(channel, requestId, response, responseType, UA_RORTYPE_RESPONSE);
+    if(retval != UA_STATUSCODE_GOOD) {
+        UA_LOG_DEBUG_CHANNEL(server->config.logger, channel, "Could not send the message over the SecureChannel with error code 0x%08x", retval);
 
     /* Clean up */
     UA_deleteMembers(request, requestType);

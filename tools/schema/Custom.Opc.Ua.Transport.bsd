@@ -89,6 +89,14 @@
     <opc:Field Name="Error" TypeName="opc:UInt32" />
     <opc:Field Name="Reason" TypeName="opc:String" />
   </opc:StructuredType>
+  
+   <opc:EnumeratedType Name="RoRType" LengthInBits="32">
+    <opc:Documentation>Type of the Request/Response </opc:Documentation>
+    <opc:EnumeratedValue Name="REQUEST" Value="0x10000000" />
+    <opc:EnumeratedValue Name="RESPONSE" Value="0x20000000" />
+
+  </opc:EnumeratedType>
+ 
  
 <!-- Transport types end -->
 

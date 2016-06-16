@@ -115,6 +115,8 @@ UA_Client_getEndpoints(UA_Client *client, const char *serverUrl,
 UA_StatusCode UA_EXPORT
 UA_Client_connect(UA_Client *client, const char *endpointUrl);
 
+UA_StatusCode UA_EXPORT
+UA_Client_connect_Session(UA_Client *client);
 /* Connect to the selected server with the given username and password
  *
  * @param client to use
