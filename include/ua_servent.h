@@ -58,6 +58,5 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
                            const char *username, const char *password, UA_ServerNetworkLayer NetworklayerListener);
 UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener);
 UA_StatusCode GetWorkFromNetworklayerServent (UA_Servent *servent, UA_UInt16 timeout);
-UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener, UA_Int32 socket);
 
 #endif /* INCLUDE_UA_SERVENT_H_ */
