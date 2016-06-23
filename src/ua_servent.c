@@ -17,6 +17,8 @@
 #include "..//src//server//ua_services.h"
 #include <errno.h>
 
+UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener, UA_Int32 socket);
+
 UA_Servent * UA_Servent_new(UA_ServerConfig config)
 	{
     UA_Servent *servent = UA_calloc(1, sizeof(UA_Servent));

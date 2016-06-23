@@ -50,9 +50,6 @@ int main(void) {
     		}
     	if (a1 == 1)
 			{
-    		count++;
-			if (count % 100000000)
-				{
 			//variables to store data
 			UA_DateTime raw_date = 0;
 			UA_String string_date;
@@ -78,7 +75,6 @@ int main(void) {
 			UA_ReadResponse_deleteMembers(&rResp);
 			UA_String_deleteMembers(&string_date);
 			}
-			}
     	};
 
     UA_Servent_delete(servent);
@@ -87,4 +83,3 @@ int main(void) {
     return (int)retval;
 #endif
 }
-
