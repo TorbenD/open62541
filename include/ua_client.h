@@ -24,6 +24,10 @@ extern "C" {
 #include "ua_log.h"
 #include "ua_types_generated.h"
 
+#ifdef UA_ENABLE_SERVENT
+	#include "ua_server.h"
+#endif
+
 /**
  * .. _client:
  *
@@ -116,7 +120,7 @@ UA_StatusCode UA_EXPORT
 UA_Client_connect(UA_Client *client, const char *endpointUrl);
 
 UA_StatusCode UA_EXPORT
-UA_Client_connect_Session(UA_Client *client);
+UA_Client_connect_Session(UA_Client *client, const char *endpointUrl);
 /* Connect to the selected server with the given username and password
  *
  * @param client to use
@@ -134,6 +138,9 @@ UA_StatusCode UA_EXPORT UA_Client_disconnect(UA_Client *client);
 /* Renew the underlying secure channel */
 UA_StatusCode UA_EXPORT UA_Client_manuallyRenewSecureChannel(UA_Client *client);
 
+#ifdef UA_ENABLE_SERVENT
+UA_StatusCode ClientServerTransfer(UA_Client *client, UA_ServerNetworkLayer NetworklayerListener);
+#endif
 /**
  * .. _client-services:
  *

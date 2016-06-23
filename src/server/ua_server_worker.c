@@ -639,7 +639,7 @@ UA_UInt16 UA_Server_run_iterate(UA_Server *server, UA_Boolean waitInternal) {
 	if (retval != UA_STATUSCODE_GOOD)
 		{
 		UA_LOG_WARNING(server->config.logger, UA_LOGCATEGORY_SERVER,
-								   "Error in funciton GetWorkFromNetworklayerComManager");
+								   "Error in funciton GetWorkFromNetworklayerServent");
 		}
 	/* Get work from the networklayer */
 	for(size_t i = 0; i < server->config.networkLayersSize; i++)
@@ -650,12 +650,14 @@ UA_UInt16 UA_Server_run_iterate(UA_Server *server, UA_Boolean waitInternal) {
 			{
 			processJobs(server, jobs, jobsSize);
 			UA_free(jobs);
+			server->servent->networklayerjobs[i].serverjobs = NULL;
 			}
 		server->servent->networklayerjobs[i].serverJobsSize = 0;
 		}
 #else
     /* Get work from the networklayer */
-    for(size_t i = 0; i < server->config.networkLayersSize; i++) {
+    for(size_t i = 0; i < server->config.networkLayersSize; i++)
+    	{
         UA_ServerNetworkLayer *nl = &server->config.networkLayers[i];
         UA_Job *jobs;
         size_t jobsSize;
@@ -665,19 +667,21 @@ UA_UInt16 UA_Server_run_iterate(UA_Server *server, UA_Boolean waitInternal) {
         else
             jobsSize = nl->getJobs(nl, &jobs, 0);
 
-        for(size_t k = 0; k < jobsSize; k++) {
+        for(size_t k = 0; k < jobsSize; k++)
+        	{
 #ifdef UA_ENABLE_MULTITHREADING
             /* Filter out delayed work */
-            if(jobs[k].type == UA_JOBTYPE_METHODCALL_DELAYED) {
+            if(jobs[k].type == UA_JOBTYPE_METHODCALL_DELAYED)
+            	{
                 addDelayedJob(server, &jobs[k]);
                 jobs[k].type = UA_JOBTYPE_NOTHING;
                 continue;
-            }
+            	}
 #endif
             /* Merge half-received messages */
             if(jobs[k].type == UA_JOBTYPE_BINARYMESSAGE_NETWORKLAYER)
                 completeMessages(server, &jobs[k]);
-        }
+        	}
 
 #ifdef UA_ENABLE_MULTITHREADING
         dispatchJobs(server, jobs, jobsSize);
@@ -689,7 +693,7 @@ UA_UInt16 UA_Server_run_iterate(UA_Server *server, UA_Boolean waitInternal) {
         if(jobsSize > 0)
             UA_free(jobs);
 #endif
-    }
+    	}
 #endif
 
     now = UA_DateTime_nowMonotonic();
