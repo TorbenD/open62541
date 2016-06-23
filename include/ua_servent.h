@@ -10,6 +10,8 @@
 
 
 #include "ua_job.h"
+#include "ua_client.h"
+#include "ua_server.h"
 
 struct UA_Client;
 typedef struct UA_Client UA_Client;
@@ -25,19 +27,37 @@ typedef struct
 	size_t clientJobsSize;
 	}UA_NetworklayerJobs;
 
+typedef struct
+	{
+	UA_Client *client;
+	//UA_String endpointUrl;
+	UA_Boolean transferdone;
+	}ClientMapping;
+
+typedef struct
+	{
+	UA_String endpointUrl;
+	UA_UInt16 serverport;
+	UA_UInt16 clientport;
+	UA_Int32  socket;
+	}ClientServerRelation;
+
 struct UA_Servent
 	{
 	UA_NetworklayerJobs *networklayerjobs;
 	UA_Server *server;
-	UA_Int32 servernumber;
-	UA_Client *client;
-	UA_Int32 clientnumber;
-	UA_Boolean transfer;
-	UA_Boolean transfer2;
+	ClientMapping *clientmapping;
+	size_t clientSize;
+	ClientServerRelation *clientserverrelation;
+	size_t clientserverrelationSize;
 	};
 
-UA_Servent * UA_Servent_new(void);
+UA_Servent * UA_Servent_new(UA_ServerConfig config);
 void UA_Servent_delete(UA_Servent* servent);
+UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl,
+                           const char *username, const char *password, UA_ServerNetworkLayer NetworklayerListener);
+UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener);
 UA_StatusCode GetWorkFromNetworklayerServent (UA_Servent *servent, UA_UInt16 timeout);
+UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener, UA_Int32 socket);
 
 #endif /* INCLUDE_UA_SERVENT_H_ */

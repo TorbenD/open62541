@@ -10,6 +10,10 @@
 #include "ua_types_generated_encoding_binary.h"
 #include "ua_transport_generated_encoding_binary.h"
 
+#ifdef UA_ENABLE_SERVENT
+	#include "..//..//plugins//networklayer_tcp.h"
+#endif
+
 /*********************/
 /* Create and Delete */
 /*********************/
@@ -255,37 +259,52 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
     UA_ByteString_init(&reply);
     UA_Boolean realloced = false;
 #ifdef UA_ENABLE_SERVENT
-    if (client->servent->transfer == UA_TRUE)
-		{
-		retval = GetWorkFromNetworklayerServent (client->servent, (UA_UInt16)client->config.timeout);
-		reply = client->servent->networklayerjobs[0].clientjobs[0].job.binaryMessage.message;
-		}
-	else
-		{
-		do {
-			retval = c->recv(c, &reply, client->config.timeout);
-			retval |= UA_Connection_completeMessages(c, &reply, &realloced);
-			if(retval != UA_STATUSCODE_GOOD)
+    for (size_t i = 0; i < client->servent->clientSize; i++)
+    	{
+    	if (client->servent->clientmapping[i].client == client)
+    		{
+			if (client->servent->clientmapping[i].transferdone == UA_TRUE)
 				{
-				UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL,
-							 "Receiving OpenSecureChannelResponse failed");
-				return retval;
+				retval = GetWorkFromNetworklayerServent (client->servent, (UA_UInt16)client->config.timeout);
+				if (client->servent->networklayerjobs[0].clientJobsSize > 0)
+					{
+					reply = client->servent->networklayerjobs[0].clientjobs[0].job.binaryMessage.message;
+					client->servent->networklayerjobs[0].clientJobsSize = 0;
+					UA_free (client->servent->networklayerjobs[0].clientjobs);
+					client->servent->networklayerjobs[0].clientjobs = NULL;
+					}
+				break;
 				}
-			}
-		while(reply.length == 0);
-		}
+			else
+				{
+				do
+					{
+					retval = c->recv(c, &reply, client->config.timeout);
+					retval |= UA_Connection_completeMessages(c, &reply, &realloced);
+					if(retval != UA_STATUSCODE_GOOD)
+						{
+						UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL,
+							 "Receiving OpenSecureChannelResponse failed");
+						return retval;
+						}
+					}
+				while(reply.length == 0);
+				break;
+				}
+    		}
+    	}
 #else
-		do {
-			retval = c->recv(c, &reply, client->config.timeout);
-			retval |= UA_Connection_completeMessages(c, &reply, &realloced);
-			if(retval != UA_STATUSCODE_GOOD)
-				{
-				UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL,
-							 "Receiving OpenSecureChannelResponse failed");
-				return retval;
-				}
+	do {
+		retval = c->recv(c, &reply, client->config.timeout);
+		retval |= UA_Connection_completeMessages(c, &reply, &realloced);
+		if(retval != UA_STATUSCODE_GOOD)
+			{
+			UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL,
+						 "Receiving OpenSecureChannelResponse failed");
+			return retval;
 			}
-		while(reply.length == 0);
+		}
+	while(reply.length == 0);
 #endif
 
     offset = 0;
@@ -389,6 +408,39 @@ static UA_StatusCode ActivateSession(UA_Client *client) {
     UA_ActivateSessionResponse_deleteMembers(&response);
     return response.responseHeader.serviceResult; // not deleted
 }
+
+#ifdef UA_ENABLE_SERVENT
+UA_StatusCode ClientServerTransfer(UA_Client *client, UA_ServerNetworkLayer NetworklayerListener)
+	{
+	UA_ServentClientServerTransferRequest request;
+	UA_ServentClientServerTransferRequest_init(&request);
+
+    request.requestHeader.requestHandle = ++client->requestHandle;
+    request.requestHeader.authenticationToken = client->authenticationToken;
+    request.requestHeader.timestamp = UA_DateTime_now();
+    request.requestHeader.timeoutHint = 600000;
+
+    // Only for TCP
+    ServerNetworkLayerTCP *layer = NetworklayerListener.handle;
+    request.serverPort = layer->port;
+    // End TCP
+
+	UA_ServentClientServerTransferResponse response;
+	UA_ServentClientServerTransferResponse_init(&response);
+
+    __UA_Client_Service(client, &request, &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERREQUEST],
+                        &response, &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERRESPONSE]);
+
+    if(response.responseHeader.serviceResult) {
+        UA_LOG_ERROR(client->config.logger, UA_LOGCATEGORY_CLIENT,
+                     "ActivateSession failed with statuscode 0x%08x", response.responseHeader.serviceResult);
+    }
+
+    UA_ServentClientServerTransferRequest_deleteMembers(&request);
+    UA_ServentClientServerTransferResponse_deleteMembers(&response);
+    return response.responseHeader.serviceResult; // not deleted
+}
+#endif
 
 /**
  * Gets a list of endpoints
@@ -662,8 +714,9 @@ UA_Client_connect(UA_Client *client, const char *endpointUrl) {
 
 
 UA_StatusCode
-UA_Client_connect_Session(UA_Client *client)
+UA_Client_connect_Session(UA_Client *client, const char *endpointUrl)
 	{
+	UA_StatusCode retval = UA_STATUSCODE_GOOD;
     if(client->state == UA_CLIENTSTATE_CONNECTED)
         return UA_STATUSCODE_GOOD;
     if(client->state == UA_CLIENTSTATE_ERRORED)
@@ -671,7 +724,14 @@ UA_Client_connect_Session(UA_Client *client)
         UA_Client_reset(client);
     	}
 
-    UA_StatusCode retval = SessionHandshake(client);
+    client->endpointUrl = UA_STRING_ALLOC(endpointUrl);
+	if(!client->endpointUrl.data)
+		{
+		retval = UA_STATUSCODE_BADOUTOFMEMORY;
+		goto cleanup;
+		}
+
+    retval = SessionHandshake(client);
     if(retval == UA_STATUSCODE_GOOD)
         retval = ActivateSession(client);
     if(retval == UA_STATUSCODE_GOOD)
@@ -757,42 +817,52 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
     UA_ByteString_init(&reply);
     UA_Boolean realloced = false;
 #ifdef UA_ENABLE_SERVENT
-    if (client->servent->transfer == UA_TRUE)
-		{
-		retval = GetWorkFromNetworklayerServent (client->servent, (UA_UInt16)client->config.timeout);
-		if (client->servent->networklayerjobs[0].clientJobsSize > 0)
-			{
-			reply = client->servent->networklayerjobs[0].clientjobs[0].job.binaryMessage.message;
-			client->servent->networklayerjobs[0].clientJobsSize = 0;
-			UA_free (client->servent->networklayerjobs[0].clientjobs);
-			}
-		}
-	else
-		{
-		do {
-			retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
-			retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
-			if(retval != UA_STATUSCODE_GOOD)
+    for (size_t i = 0; i < client->servent->clientSize; i++)
+    	{
+    	if (client->servent->clientmapping[i].client == client)
+    		{
+			if (client->servent->clientmapping[i].transferdone == UA_TRUE)
 				{
-				respHeader->serviceResult = retval;
-				client->state = UA_CLIENTSTATE_ERRORED;
-				return;
+				retval = GetWorkFromNetworklayerServent (client->servent, (UA_UInt16)client->config.timeout);
+				if (client->servent->networklayerjobs[0].clientJobsSize > 0)
+					{
+					reply = client->servent->networklayerjobs[0].clientjobs[0].job.binaryMessage.message;
+					client->servent->networklayerjobs[0].clientJobsSize = 0;
+					UA_free (client->servent->networklayerjobs[0].clientjobs);
+					client->servent->networklayerjobs[0].clientjobs = NULL;
+					}
+				break;
 				}
-			}
-		while(!reply.data);
-		}
+			else
+				{
+				do
+					{
+					retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
+					retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
+					if(retval != UA_STATUSCODE_GOOD)
+						{
+						respHeader->serviceResult = retval;
+						client->state = UA_CLIENTSTATE_ERRORED;
+						return;
+						}
+					}
+				while(reply.length == 0);
+				break;
+				}
+    		}
+    	}
 #else
-		do {
-			retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
-			retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
-			if(retval != UA_STATUSCODE_GOOD)
-				{
-				respHeader->serviceResult = retval;
-				client->state = UA_CLIENTSTATE_ERRORED;
-				return;
-				}
+	do {
+		retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
+		retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
+		if(retval != UA_STATUSCODE_GOOD)
+			{
+			respHeader->serviceResult = retval;
+			client->state = UA_CLIENTSTATE_ERRORED;
+			return;
 			}
-		while(!reply.data);
+		}
+	while(reply.length == 0);
 #endif
 
     size_t offset = 0;

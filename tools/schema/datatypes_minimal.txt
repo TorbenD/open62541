@@ -158,3 +158,5 @@ MonitoredItemModifyResult
 ModifyMonitoredItemsResponse
 SetMonitoringModeRequest
 SetMonitoringModeResponse
+ServentClientServerTransferRequest
+ServentClientServerTransferResponse

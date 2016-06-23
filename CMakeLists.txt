@@ -238,6 +238,7 @@ endif()
 if(UA_ENABLE_SERVENT)
   list(APPEND internal_headers ${PROJECT_SOURCE_DIR}/include/ua_servent.h)
   list(APPEND lib_sources ${PROJECT_SOURCE_DIR}/src/ua_servent.c)
+  list(APPEND lib_sources ${PROJECT_SOURCE_DIR}/src/server/ua_services_servent.c)
 endif()
 
 if(UA_ENABLE_GENERATE_NAMESPACE0)

@@ -41,48 +41,23 @@ int main(void) {
     signal(SIGTERM, stopHandler);
 
 #ifdef UA_ENABLE_SERVENT
-	UA_Servent *servent = UA_Servent_new();
-	servent->client = UA_Client_new(UA_ClientConfig_standard);
-	servent->client->servent = servent;
-
     UA_ServerConfig config = UA_ServerConfig_standard;
 	UA_ServerNetworkLayer nl = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 16664);
 	config.networkLayers = &nl;
 	config.networkLayersSize = 1;
-	servent->server = UA_Server_new(config);
-	servent->server->servent = servent;
 
-	UA_NetworklayerJobs networklayerjobs[config.networkLayersSize];
-	servent->networklayerjobs = networklayerjobs;
-	for(size_t i = 0; i < config.networkLayersSize; i++)
-		{
-		servent->networklayerjobs[i].clientJobsSize = 0;
-		servent->networklayerjobs[i].clientjobs = NULL;
-		servent->networklayerjobs[i].serverJobsSize = 0;
-		servent->networklayerjobs[i].serverjobs = NULL;
-		}
+    UA_Servent *servent = UA_Servent_new(config);
+	UA_Client *client = NULL;
 
 	UA_StatusCode retval = UA_Server_run_startup(servent->server);
-	ServerNetworkLayerTCP *layer = nl.handle;
 
     while (running)
     	{
     	retval = UA_Server_run_iterate(servent->server, true);
-    	if (servent->transfer2 == UA_TRUE && a0 == 0)
+    	if (a0 == 1)
     		{
-    		a0 = 1;
-    		servent->client->connection = *(layer->mappings[0].connection);
-    		servent->client->channel = *(layer->mappings[0].connection->channel);
-    		servent->client->scRenewAt = UA_DateTime_now() + (UA_DateTime)(layer->mappings[0].connection->channel->securityToken.revisedLifetime * (UA_Double)UA_MSEC_TO_DATETIME * 0.75);
-    		servent->client->channel.sendSequenceNumber = 0;
-    		servent->client->channel.receiveSequenceNumber = 1;
-    		servent->transfer = UA_TRUE;
-    		retval = UA_Client_connect_Session(servent->client);
-
-    		printf("\nServerSocket: %d", layer->serversockfd);
-			for(size_t i = 0; i < layer->mappingsSize; i++)
-				printf("\n Layer [%lu] Socket: %d", i , layer->mappings[i].sockfd);
-			printf("\nClientSocket: %d", servent->client->connection.sockfd);
+    		a0 = 0;
+    		client = UA_Servent_connect(servent, UA_ClientConfig_standard, "opc.tcp://127.0.0.1:16665", nl);
     		}
     	if (a1 == 1)
 			{
@@ -100,7 +75,7 @@ int main(void) {
 			rReq.nodesToRead[0].nodeId = UA_NODEID_NUMERIC(0, 2258);
 			rReq.nodesToRead[0].attributeId = UA_ATTRIBUTEID_VALUE;
 
-			UA_ReadResponse rResp = UA_Client_Service_read(servent->client, rReq);
+			UA_ReadResponse rResp = UA_Client_Service_read(client, rReq);
 			if(rResp.responseHeader.serviceResult == UA_STATUSCODE_GOOD && rResp.resultsSize > 0 &&
 			   rResp.results[0].hasValue && UA_Variant_isScalar(&rResp.results[0].value) &&
 			   rResp.results[0].value.type == &UA_TYPES[UA_TYPES_DATETIME])
@@ -113,17 +88,10 @@ int main(void) {
 			UA_ReadRequest_deleteMembers(&rReq);
 			UA_ReadResponse_deleteMembers(&rResp);
 			UA_String_deleteMembers(&string_date);
-			printf("\nServerSocket: %d", layer->serversockfd);
-			for(size_t i = 0; i < layer->mappingsSize; i++)
-				printf("\n Layer [%lu] Socket: %d", i , layer->mappings[i].sockfd);
-			printf("\nClientSocket: %d", servent->client->connection.sockfd);
 			}
 			}
     	};
 
-    UA_Server_delete(servent->server);
-    UA_Client_disconnect(servent->client);
-    UA_Client_delete(servent->client);
     UA_Servent_delete(servent);
     nl.deleteMembers(&nl);
 
