@@ -493,6 +493,11 @@ if(UA_BUILD_EXAMPLES)
       add_executable(server_method ${PROJECT_SOURCE_DIR}/examples/server_method.c $<TARGET_OBJECTS:open62541-object>)
       target_link_libraries(server_method ${LIBS})
     endif()
+    
+    if(UA_ENABLE_SERVENT)
+	add_executable(servent_firstSteps ${PROJECT_SOURCE_DIR}/examples/servent_firstSteps.c $<TARGET_OBJECTS:open62541-object>)
+    target_link_libraries(servent_firstSteps ${LIBS})
+	endif()
 endif()
 
 if(UA_BUILD_DOCUMENTATION)
