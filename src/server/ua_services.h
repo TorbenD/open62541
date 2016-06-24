@@ -87,12 +87,6 @@ void Service_CloseSession(UA_Server *server, UA_Session *session,
 
 /* Not Implemented: Service_Cancel */
 
-
-#ifdef UA_ENABLE_SERVENT
-void Service_ClientServerTransfer(UA_Server *server, UA_SecureChannel *channel, UA_Session *session, const UA_ServentClientServerTransferRequest *request,
-		UA_ServentClientServerTransferResponse *response);
-#endif
-
 /**
  * NodeManagement Service Set
  * --------------------------
