@@ -160,3 +160,4 @@ SetMonitoringModeRequest
 SetMonitoringModeResponse
 ServentClientServerTransferRequest
 ServentClientServerTransferResponse
+ServentClientServerTransferDataType

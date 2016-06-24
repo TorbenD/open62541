@@ -132,14 +132,6 @@ getServicePointers(UA_UInt32 requestTypeId, const UA_DataType **requestType,
         *responseType = &UA_TYPES[UA_TYPES_TRANSLATEBROWSEPATHSTONODEIDSRESPONSE];
         break;
 
-#ifdef UA_ENABLE_SERVENT
-    case UA_NS0ID_SERVENTCLIENTSERVERTRANSFERREQUEST:
-		*service = (UA_Service)Service_ClientServerTransfer;
-		*requestType = &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERREQUEST];
-		*responseType = &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERRESPONSE];
-	break;
-#endif
-
 #ifdef UA_ENABLE_SUBSCRIPTIONS
     case UA_NS0ID_CREATESUBSCRIPTIONREQUEST:
         *service = (UA_Service)Service_CreateSubscription;
@@ -508,14 +500,7 @@ processRequest(UA_SecureChannel *channel, UA_Server *server, UA_UInt32 requestId
 #endif
 
     /* Call the service */
-#ifdef UA_ENABLE_SERVENT
-    if(requestType == &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERREQUEST])
-    	Service_ClientServerTransfer(server, channel, session, request, response);
-    else
-    	service(server, session, request, response);
-#else
     service(server, session, request, response);
-#endif
 
  send_response:
     /* Send the response */

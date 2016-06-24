@@ -16,6 +16,78 @@
 #include "..//plugins//networklayer_tcp.h"
 #include "..//src//server//ua_services.h"
 #include <errno.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include "ua_log.h"
+#include "..//plugins//logger_stdout.h"
+#include "ua_client_highlevel.h"
+
+
+
+
+static UA_StatusCode
+ClientServerTransferMethod(void *handle, const UA_NodeId objectId, size_t inputSize, const UA_Variant *input,
+                 size_t outputSize, UA_Variant *output)
+	{
+	UA_ServentClientServerTransferDataType *data_tmp = (UA_ServentClientServerTransferDataType*)(input->data);
+	UA_Servent *servent = (UA_Servent*)handle;
+
+	UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "ClientServerTransfer was called");
+
+	for (size_t i = 0; i < servent->clientserverrelationSize; i++)
+		{
+		if (UA_String_equal(&(servent->clientserverrelation[servent->clientserverrelationSize].endpointUrl), &data_tmp->url) &&
+			servent->clientserverrelation[servent->clientserverrelationSize].clientport == data_tmp->clientPort &&
+			servent->clientserverrelation[servent->clientserverrelationSize].serverport == data_tmp->serverPort)
+			return UA_STATUSCODE_GOOD;
+		}
+
+	ServerNetworkLayerTCP *layer = NULL;
+	UA_String url_tmp = UA_STRING_NULL;
+	UA_Int32 socket_tmp = 0;
+	UA_UInt16 clientport_tmp = 0;
+	struct sockaddr_in addr;
+	socklen_t addrlen = sizeof(struct sockaddr_in);
+
+
+	for (size_t i = 0; i < servent->server->config.networkLayersSize;i++)
+		{
+		layer = servent->server->config.networkLayers[i].handle;
+		for (size_t j = 0; j < layer->mappingsSize; j++)
+			{
+			getpeername(layer->mappings[j].sockfd, (struct sockaddr*)&addr, &addrlen);
+			url_tmp = UA_String_fromChars(inet_ntoa(addr.sin_addr));
+			clientport_tmp = ntohs(addr.sin_port);
+			if (UA_String_equal(&url_tmp, &data_tmp->url) && clientport_tmp == data_tmp->clientPort)
+				{
+				socket_tmp = layer->mappings[j].sockfd;
+				break;
+				}
+			}
+		if (socket_tmp != 0)
+			break;
+		}
+
+
+	ClientServerRelation *clientserverrelation_tmp = NULL;
+	clientserverrelation_tmp = UA_realloc (servent->clientserverrelation, sizeof(ClientServerRelation) * (servent->clientserverrelationSize + 1));
+	if(!clientserverrelation_tmp)
+		{
+		UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientServerRelation");
+		return UA_STATUSCODE_BADOUTOFMEMORY;
+		}
+	servent->clientserverrelation = clientserverrelation_tmp;
+	servent->clientserverrelation[servent->clientserverrelationSize].clientport = data_tmp->clientPort;
+	servent->clientserverrelation[servent->clientserverrelationSize].serverport = data_tmp->serverPort;
+	UA_String_copy(&data_tmp->url,&servent->clientserverrelation[servent->clientserverrelationSize].endpointUrl);
+	servent->clientserverrelation[servent->clientserverrelationSize].socket = socket_tmp;
+	servent->clientserverrelationSize++;
+
+	UA_StatusCode tmp =  UA_STATUSCODE_GOOD;
+	UA_Variant_setScalarCopy(output, &tmp, &UA_TYPES[UA_TYPES_UINT32]);
+
+	return UA_STATUSCODE_GOOD;
+	}
 
 UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener, UA_Int32 socket);
 
@@ -27,6 +99,40 @@ UA_Servent * UA_Servent_new(UA_ServerConfig config)
 
     servent->server = UA_Server_new(config);
     servent->server->servent = servent;
+
+	// Method for Client-Server-Relation
+    UA_Argument inputArguments;
+	UA_Argument_init(&inputArguments);
+	inputArguments.arrayDimensionsSize = 0;
+	inputArguments.arrayDimensions = NULL;
+	inputArguments.dataType = UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERDATATYPE].typeId;
+	inputArguments.description = UA_LOCALIZEDTEXT("en_US", "A String");
+	inputArguments.name = UA_STRING("MyInput");
+	inputArguments.valueRank = -1;
+
+	// define output arguments
+	UA_Argument outputArguments;
+	UA_Argument_init(&outputArguments);
+	outputArguments.arrayDimensionsSize = 0;
+	outputArguments.arrayDimensions = NULL;
+	outputArguments.dataType = UA_TYPES[UA_TYPES_UINT32].typeId;
+	outputArguments.description = UA_LOCALIZEDTEXT("en_US", "A String");
+	outputArguments.name = UA_STRING("StatusCode");
+	outputArguments.valueRank = -1;
+
+	UA_MethodAttributes CSTAttr;
+	UA_MethodAttributes_init(&CSTAttr);
+	CSTAttr.description = UA_LOCALIZEDTEXT("en_US","1dArrayExample");
+	CSTAttr.displayName = UA_LOCALIZEDTEXT("en_US","1dArrayExample");
+	CSTAttr.executable = true;
+	CSTAttr.userExecutable = true;
+	UA_Server_addMethodNode(servent->server, UA_NODEID_STRING(1, "ClientServerTransferMethod"),
+							UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+							UA_NODEID_NUMERIC(0, UA_NS0ID_HASCOMPONENT),
+							UA_QUALIFIEDNAME(1, "ClientServerTransferMethod"),
+							CSTAttr, &ClientServerTransferMethod, servent,
+							1, &inputArguments, 1, &outputArguments, NULL);
+
 
     UA_NetworklayerJobs *networklayerjobs = UA_calloc (config.networkLayersSize, sizeof(UA_ServerNetworkLayer));
 	servent->networklayerjobs = networklayerjobs;
@@ -182,11 +288,38 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 	Service_OpenSecureChannel(servent->server, connection, &opnSecRq, &openSecRe);
 	servent->clientmapping[servent->clientSize-1].transferdone = UA_TRUE;
 
-	retval = ClientServerTransfer(servent->clientmapping[servent->clientSize-1].client, NetworklayerListener);
-	if (retval != UA_STATUSCODE_GOOD)
+	UA_Variant input;
+	UA_ServentClientServerTransferDataType arg;
+	struct sockaddr_in addr;
+	socklen_t addrlen = sizeof(struct sockaddr_in);
+	getsockname(new_client->connection.sockfd, (struct sockaddr*)&addr, &addrlen);
+
+	arg.url = UA_String_fromChars(inet_ntoa(addr.sin_addr));
+	arg.clientPort = ntohs(addr.sin_port);
+	arg.serverPort = layer->port;
+
+	UA_Variant_init(&input);
+	UA_Variant_setScalarCopy(&input, &arg, &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERDATATYPE]);
+	size_t outputSize;
+	UA_Variant *output;
+	retval = UA_Client_call(new_client, UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+					UA_NODEID_STRING(1, "ClientServerTransferMethod"), 1, &input, &outputSize, &output);
+	if(retval == UA_STATUSCODE_GOOD)
 		{
-		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "Problem in function ClientServerTransfer");
+		UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was successfull, and %lu returned values available.\n",
+			   (unsigned long)outputSize);
+		UA_Array_delete(output, outputSize, &UA_TYPES[UA_TYPES_VARIANT]);
 		}
+	else
+		{
+		UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was unsuccessfull, and %x returned values available.\n", retval);
+		}
+	if (((UA_StatusCode*)output->data) != UA_STATUSCODE_GOOD)
+		{
+		UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "Method call response was bad");
+		}
+
+	UA_Variant_deleteMembers(&input);
 
     return servent->clientmapping[servent->clientSize-1].client;
 	}
@@ -307,11 +440,37 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 	Service_OpenSecureChannel(servent->server, connection, &opnSecRq, &openSecRe);
 	servent->clientmapping[servent->clientSize-1].transferdone = UA_TRUE;
 
-	retval = ClientServerTransfer(servent->clientmapping[servent->clientSize-1].client, NetworklayerListener);
-	if (retval != UA_STATUSCODE_GOOD)
+	UA_Variant input;
+	UA_ServentClientServerTransferDataType arg;
+	struct sockaddr_in addr;
+	socklen_t addrlen = sizeof(struct sockaddr_in);
+	getsockname(new_client->connection.sockfd, (struct sockaddr*)&addr, &addrlen);
+
+	arg.url = UA_String_fromChars(inet_ntoa(addr.sin_addr));
+	arg.clientPort = ntohs(addr.sin_port);
+	arg.serverPort = layer->port;
+
+	UA_Variant_init(&input);
+	UA_Variant_setScalarCopy(&input, &arg, &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERDATATYPE]);
+	size_t outputSize;
+	UA_Variant *output;
+	retval = UA_Client_call(new_client, UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+					UA_NODEID_STRING(1, "ClientServerTransferMethod"), 1, &input, &outputSize, &output);
+	if(retval == UA_STATUSCODE_GOOD)
 		{
-		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "Problem in function ClientServerTransfer");
+		UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was successfull, and %lu returned values available.\n",
+			   (unsigned long)outputSize);
+		if (((UA_StatusCode*)output->data)[0] != UA_STATUSCODE_GOOD)
+			{
+			UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "Method call response was bad");
+			}
+		UA_Array_delete(output, outputSize, &UA_TYPES[UA_TYPES_VARIANT]);
 		}
+	else
+		{
+		UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was unsuccessfull, and %x returned values available.\n", retval);
+		}
+	UA_Variant_deleteMembers(&input);
 
 	return servent->clientmapping[servent->clientSize-1].client;
 	}

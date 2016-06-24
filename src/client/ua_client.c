@@ -401,39 +401,6 @@ static UA_StatusCode ActivateSession(UA_Client *client) {
     return response.responseHeader.serviceResult; // not deleted
 }
 
-#ifdef UA_ENABLE_SERVENT
-UA_StatusCode ClientServerTransfer(UA_Client *client, UA_ServerNetworkLayer NetworklayerListener)
-	{
-	UA_ServentClientServerTransferRequest request;
-	UA_ServentClientServerTransferRequest_init(&request);
-
-    request.requestHeader.requestHandle = ++client->requestHandle;
-    request.requestHeader.authenticationToken = client->authenticationToken;
-    request.requestHeader.timestamp = UA_DateTime_now();
-    request.requestHeader.timeoutHint = 600000;
-
-    // Only for TCP
-    ServerNetworkLayerTCP *layer = NetworklayerListener.handle;
-    request.serverPort = layer->port;
-    // End TCP
-
-	UA_ServentClientServerTransferResponse response;
-	UA_ServentClientServerTransferResponse_init(&response);
-
-    __UA_Client_Service(client, &request, &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERREQUEST],
-                        &response, &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERRESPONSE]);
-
-    if(response.responseHeader.serviceResult) {
-        UA_LOG_ERROR(client->config.logger, UA_LOGCATEGORY_CLIENT,
-                     "ActivateSession failed with statuscode 0x%08x", response.responseHeader.serviceResult);
-    }
-
-    UA_ServentClientServerTransferRequest_deleteMembers(&request);
-    UA_ServentClientServerTransferResponse_deleteMembers(&response);
-    return response.responseHeader.serviceResult; // not deleted
-}
-#endif
-
 /**
  * Gets a list of endpoints
  * Memory is allocated for endpointDescription array
