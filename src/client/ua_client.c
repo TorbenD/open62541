@@ -12,6 +12,7 @@
 
 #ifdef UA_ENABLE_SERVENT
 	#include "..//..//plugins//networklayer_tcp.h"
+	#include "..//server//ua_server_internal.h"
 #endif
 
 /*********************/
@@ -258,12 +259,19 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
 			if (client->servent->clientmapping[i].transferdone == UA_TRUE)
 				{
 				retval = GetWorkFromNetworklayerServent (client->servent, (UA_UInt16)client->config.timeout);
-				if (client->servent->networklayerjobs[0].clientJobsSize > 0)
+				for (size_t j = 0; j < client->servent->server->config.networkLayersSize; j++)
 					{
-					reply = client->servent->networklayerjobs[0].clientjobs[0].job.binaryMessage.message;
-					client->servent->networklayerjobs[0].clientJobsSize = 0;
-					UA_free (client->servent->networklayerjobs[0].clientjobs);
-					client->servent->networklayerjobs[0].clientjobs = NULL;
+					if ((client->servent->clientmapping[i].NetworklayerListener) == &(client->servent->server->config.networkLayers[j]))
+						{
+						if (client->servent->networklayerjobs[i].clientJobsSize > 0)
+							{
+							reply = client->servent->networklayerjobs[i].clientjobs[0].job.binaryMessage.message;
+							client->servent->networklayerjobs[i].clientJobsSize = 0;
+							UA_free (client->servent->networklayerjobs[i].clientjobs);
+							client->servent->networklayerjobs[i].clientjobs = NULL;
+							break;
+							}
+						}
 					}
 				break;
 				}
@@ -783,12 +791,21 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
 			if (client->servent->clientmapping[i].transferdone == UA_TRUE)
 				{
 				retval = GetWorkFromNetworklayerServent (client->servent, (UA_UInt16)client->config.timeout);
-				if (client->servent->networklayerjobs[0].clientJobsSize > 0)
+				for (size_t j = 0; j < client->servent->server->config.networkLayersSize; j++)
 					{
-					reply = client->servent->networklayerjobs[0].clientjobs[0].job.binaryMessage.message;
-					client->servent->networklayerjobs[0].clientJobsSize = 0;
-					UA_free (client->servent->networklayerjobs[0].clientjobs);
-					client->servent->networklayerjobs[0].clientjobs = NULL;
+					UA_Int32 tmp = (client->servent->clientmapping[i].NetworklayerListener);
+					UA_Int32 tmp2 = &(client->servent->server->config.networkLayers[j]);
+					if ((client->servent->clientmapping[i].NetworklayerListener) == &(client->servent->server->config.networkLayers[j]))
+						{
+						if (client->servent->networklayerjobs[i].clientJobsSize > 0)
+							{
+							reply = client->servent->networklayerjobs[i].clientjobs[0].job.binaryMessage.message;
+							client->servent->networklayerjobs[i].clientJobsSize = 0;
+							UA_free (client->servent->networklayerjobs[i].clientjobs);
+							client->servent->networklayerjobs[i].clientjobs = NULL;
+							break;
+							}
+						}
 					}
 				break;
 				}

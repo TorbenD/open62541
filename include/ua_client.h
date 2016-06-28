@@ -24,10 +24,6 @@ extern "C" {
 #include "ua_log.h"
 #include "ua_types_generated.h"
 
-#ifdef UA_ENABLE_SERVENT
-	#include "ua_server.h"
-#endif
-
 /**
  * .. _client:
  *
@@ -138,9 +134,6 @@ UA_StatusCode UA_EXPORT UA_Client_disconnect(UA_Client *client);
 /* Renew the underlying secure channel */
 UA_StatusCode UA_EXPORT UA_Client_manuallyRenewSecureChannel(UA_Client *client);
 
-#ifdef UA_ENABLE_SERVENT
-UA_StatusCode ClientServerTransfer(UA_Client *client, UA_ServerNetworkLayer NetworklayerListener);
-#endif
 /**
  * .. _client-services:
  *

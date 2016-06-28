@@ -174,7 +174,7 @@ ClientServerTransferMethod_delete(void *handle, const UA_NodeId objectId, size_t
 
 	return UA_STATUSCODE_GOOD;
 	}
-UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener, UA_Int32 socket);
+UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer *NetworklayerListener, UA_Int32 socket);
 
 UA_Servent * UA_Servent_new(UA_ServerConfig config)
 	{
@@ -261,7 +261,7 @@ void UA_Servent_delete(UA_Servent* servent)
 	}
 
 UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl,
-                           const char *username, const char *password, UA_ServerNetworkLayer NetworklayerListener)
+                           const char *username, const char *password, UA_ServerNetworkLayer *NetworklayerListener)
 	{
 	UA_Client *new_client = NULL;
 	UA_String endpointUrl_tmp = UA_String_fromChars(endpointUrl);
@@ -361,7 +361,7 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 		return NULL;
 		}
 
-	ServerNetworkLayerTCP *layer = NetworklayerListener.handle;
+	ServerNetworkLayerTCP *layer = NetworklayerListener->handle;
 	retval = ServerNetworkLayerTCP_add(layer, new_client->connection.sockfd);
 	if (retval != UA_STATUSCODE_GOOD)
 		{
@@ -443,7 +443,7 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
     return servent->clientmapping[servent->clientmappingSize-1].client;
 	}
 
-UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener)
+UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer *NetworklayerListener)
 	{
 	UA_Client *new_client = NULL;
 
@@ -541,7 +541,7 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 		return NULL;
 		}
 
-	ServerNetworkLayerTCP *layer = NetworklayerListener.handle;
+	ServerNetworkLayerTCP *layer = NetworklayerListener->handle;
 	retval = ServerNetworkLayerTCP_add(layer, new_client->connection.sockfd);
 	if (retval != UA_STATUSCODE_GOOD)
 		{
@@ -622,9 +622,9 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 	return servent->clientmapping[servent->clientmappingSize-1].client;
 	}
 
-UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener, UA_Int32 socket)
+UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer *NetworklayerListener, UA_Int32 socket)
 	{
-	ServerNetworkLayerTCP *layer = NetworklayerListener.handle;
+	ServerNetworkLayerTCP *layer = NetworklayerListener->handle;
 
 	UA_Client *new_client = UA_Client_new(clientconfig);
 	if(!new_client)
@@ -730,7 +730,7 @@ UA_StatusCode UA_Servent_disconnect(UA_Servent *servent, UA_Client *client)
 
 
 
-			ServerNetworkLayerTCP *layer = servent->clientmapping[i].NetworklayerListener.handle;
+			ServerNetworkLayerTCP *layer = servent->clientmapping[i].NetworklayerListener->handle;
 			for (size_t j = 0; j < layer->mappingsSize; j++)
 				{
 				if (layer->mappings[j].connection == &(client->connection))
@@ -746,9 +746,11 @@ UA_StatusCode UA_Servent_disconnect(UA_Servent *servent, UA_Client *client)
 					}
 				}
 
-			servent->clientmapping[i].transferdone = UA_FALSE;
 			UA_Client_disconnect(client);
 			UA_Client_delete(client);
+			servent->clientmapping[i].transferdone = UA_FALSE;
+			servent->clientmapping[i].client = NULL;
+			servent->clientmapping[i].NetworklayerListener = NULL;
 			if (servent->clientmappingSize == 1)
 				{
 				UA_free(servent->clientmapping);
