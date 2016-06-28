@@ -7,9 +7,7 @@
 #include "ua_transport_generated.h"
 #include "ua_transport_generated_encoding_binary.h"
 
-#ifdef UA_ENABLE_SERVENT
-	#include "ua_servent.h"
-#endif
+
 
 /********************/
 /* Helper Functions */
