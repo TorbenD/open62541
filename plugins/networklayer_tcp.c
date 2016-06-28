@@ -585,7 +585,7 @@ UA_ClientConnectionTCP(UA_ConnectionConfig localConf, const char *endpointUrl, U
         return connection;
     }
 
-    char hostname[512];
+    char hostname[512] = "";
     for(int i=10; i < portpos; i++)
         hostname[i-10] = endpointUrl[i];
     hostname[portpos-10] = 0;

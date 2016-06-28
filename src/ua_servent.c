@@ -21,12 +21,14 @@
 #include "ua_log.h"
 #include "..//plugins//logger_stdout.h"
 #include "ua_client_highlevel.h"
+#include "stdio.h"
+#include <inttypes.h>
 
 
 
 
 static UA_StatusCode
-ClientServerTransferMethod(void *handle, const UA_NodeId objectId, size_t inputSize, const UA_Variant *input,
+ClientServerTransferMethod_add(void *handle, const UA_NodeId objectId, size_t inputSize, const UA_Variant *input,
                  size_t outputSize, UA_Variant *output)
 	{
 	UA_ServentClientServerTransferDataType *data_tmp = (UA_ServentClientServerTransferDataType*)(input->data);
@@ -36,9 +38,9 @@ ClientServerTransferMethod(void *handle, const UA_NodeId objectId, size_t inputS
 
 	for (size_t i = 0; i < servent->clientserverrelationSize; i++)
 		{
-		if (UA_String_equal(&(servent->clientserverrelation[servent->clientserverrelationSize].endpointUrl), &data_tmp->url) &&
-			servent->clientserverrelation[servent->clientserverrelationSize].clientport == data_tmp->clientPort &&
-			servent->clientserverrelation[servent->clientserverrelationSize].serverport == data_tmp->serverPort)
+		if (UA_String_equal(&(servent->clientserverrelation[i].endpointUrl), &data_tmp->url) &&
+			servent->clientserverrelation[i].clientport == data_tmp->clientPort &&
+			servent->clientserverrelation[i].serverport == data_tmp->serverPort)
 			return UA_STATUSCODE_GOOD;
 		}
 
@@ -89,6 +91,89 @@ ClientServerTransferMethod(void *handle, const UA_NodeId objectId, size_t inputS
 	return UA_STATUSCODE_GOOD;
 	}
 
+static UA_StatusCode
+ClientServerTransferMethod_delete(void *handle, const UA_NodeId objectId, size_t inputSize, const UA_Variant *input,
+                 size_t outputSize, UA_Variant *output)
+	{
+	UA_ServentClientServerTransferDataType *data_tmp = (UA_ServentClientServerTransferDataType*)(input->data);
+	UA_Servent *servent = (UA_Servent*)handle;
+	UA_StatusCode statuscode_tmp = UA_STATUSCODE_GOOD;
+
+	UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "ClientServerTransfer was called");
+
+	for (size_t i = 0; i < servent->clientserverrelationSize; i++)
+		{
+		if (UA_String_equal(&(servent->clientserverrelation[i].endpointUrl), &data_tmp->url) &&
+			servent->clientserverrelation[i].clientport == data_tmp->clientPort)
+			{
+			char char_tmp[1000] = "opc.tcp://";
+			strncat(char_tmp, (char*)data_tmp->url.data, data_tmp->url.length);
+			strcat(char_tmp, ":");
+			char *char_tmp2 = UA_calloc(1, sizeof(char)*sizeof(servent->clientserverrelation[i].serverport));
+			sprintf(char_tmp2, "%"PRIu16"", servent->clientserverrelation[i].serverport);
+			strcat(char_tmp, char_tmp2);
+			UA_String endpointUrl_tmp = UA_String_fromChars(char_tmp);
+			UA_free(char_tmp2);
+			char_tmp2 = NULL;
+			for (size_t j = 0; j < servent->clientmappingSize; j++)
+				{
+				if (UA_String_equal(&(servent->clientmapping[j].client->endpointUrl), &endpointUrl_tmp))
+					{
+					servent->clientmapping[j].client = servent->clientmapping[servent->clientmappingSize-1].client;
+					servent->clientmapping[j].NetworklayerListener = servent->clientmapping[servent->clientmappingSize-1].NetworklayerListener;
+					servent->clientmapping[j].transferdone = servent->clientmapping[servent->clientmappingSize-1].transferdone;
+					ClientMapping *clientmapping_tmp = NULL;
+					clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize - 1));
+					if(!clientmapping_tmp)
+						{
+						UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
+						statuscode_tmp =  UA_STATUSCODE_BADOUTOFMEMORY;
+						UA_Variant_setScalarCopy(output, &statuscode_tmp, &UA_TYPES[UA_TYPES_UINT32]);
+						return UA_STATUSCODE_BADOUTOFMEMORY;
+						}
+					servent->clientmapping = clientmapping_tmp;
+					servent->clientmappingSize--;
+					}
+				}
+
+			servent->clientserverrelation[i].clientport = servent->clientserverrelation[servent->clientserverrelationSize-1].clientport;
+			servent->clientserverrelation[i].serverport = servent->clientserverrelation[servent->clientserverrelationSize-1].serverport;
+			UA_String_copy(&servent->clientserverrelation[servent->clientserverrelationSize-1].endpointUrl,&servent->clientserverrelation[i].endpointUrl);
+			servent->clientserverrelation[i].socket = servent->clientserverrelation[servent->clientserverrelationSize-1].socket;
+
+			ClientServerRelation *clientserverrelation_tmp = NULL;
+			if (servent->clientserverrelationSize == 1)
+				{
+				UA_free(servent->clientserverrelation);
+				servent->clientserverrelation = NULL;
+				}
+			else
+				{
+				clientserverrelation_tmp = UA_realloc (servent->clientserverrelation, sizeof(ClientServerRelation) * (servent->clientserverrelationSize - 1));
+				if(!clientserverrelation_tmp)
+					{
+					UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientServerRelation");
+					statuscode_tmp =  UA_STATUSCODE_BADOUTOFMEMORY;
+					UA_Variant_setScalarCopy(output, &statuscode_tmp, &UA_TYPES[UA_TYPES_UINT32]);
+					return UA_STATUSCODE_BADOUTOFMEMORY;
+					}
+				servent->clientserverrelation = clientserverrelation_tmp;
+				}
+			servent->clientserverrelationSize--;
+			}
+		else
+			{
+			statuscode_tmp =  UA_STATUSCODE_GOOD;
+			UA_Variant_setScalarCopy(output, &statuscode_tmp, &UA_TYPES[UA_TYPES_UINT32]);
+			return UA_STATUSCODE_GOOD;
+			}
+		}
+
+	statuscode_tmp =  UA_STATUSCODE_GOOD;
+	UA_Variant_setScalarCopy(output, &statuscode_tmp, &UA_TYPES[UA_TYPES_UINT32]);
+
+	return UA_STATUSCODE_GOOD;
+	}
 UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener, UA_Int32 socket);
 
 UA_Servent * UA_Servent_new(UA_ServerConfig config)
@@ -126,11 +211,18 @@ UA_Servent * UA_Servent_new(UA_ServerConfig config)
 	CSTAttr.displayName = UA_LOCALIZEDTEXT("en_US","1dArrayExample");
 	CSTAttr.executable = true;
 	CSTAttr.userExecutable = true;
-	UA_Server_addMethodNode(servent->server, UA_NODEID_STRING(1, "ClientServerTransferMethod"),
+	UA_Server_addMethodNode(servent->server, UA_NODEID_STRING(1, "ClientServerTransferMethod_add"),
 							UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
 							UA_NODEID_NUMERIC(0, UA_NS0ID_HASCOMPONENT),
-							UA_QUALIFIEDNAME(1, "ClientServerTransferMethod"),
-							CSTAttr, &ClientServerTransferMethod, servent,
+							UA_QUALIFIEDNAME(1, "ClientServerTransferMethod_add"),
+							CSTAttr, &ClientServerTransferMethod_add, servent,
+							1, &inputArguments, 1, &outputArguments, NULL);
+
+	UA_Server_addMethodNode(servent->server, UA_NODEID_STRING(1, "ClientServerTransferMethod_delete"),
+							UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+							UA_NODEID_NUMERIC(0, UA_NS0ID_HASCOMPONENT),
+							UA_QUALIFIEDNAME(1, "ClientServerTransferMethod_delete"),
+							CSTAttr, &ClientServerTransferMethod_delete, servent,
 							1, &inputArguments, 1, &outputArguments, NULL);
 
 
@@ -146,7 +238,7 @@ UA_Servent * UA_Servent_new(UA_ServerConfig config)
 
 
     servent->clientmapping = NULL;
-    servent->clientSize = 0;
+    servent->clientmappingSize = 0;
     servent->clientserverrelation = NULL;
     servent->clientserverrelationSize = 0;
     return servent;
@@ -154,9 +246,8 @@ UA_Servent * UA_Servent_new(UA_ServerConfig config)
 
 void UA_Servent_delete(UA_Servent* servent)
 	{
-	for (size_t i = 0; i < servent->clientSize; i++)
+	for (size_t i = 0; i < servent->clientmappingSize; i++)
 		{
-		UA_Client_disconnect(servent->clientmapping[i].client);
 		UA_Client_delete(servent->clientmapping[i].client);
 		}
 	UA_free(servent->clientmapping);
@@ -177,7 +268,7 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 	UA_String username_tmp = UA_String_fromChars(username);
 	UA_String password_tmp = UA_String_fromChars(password);
 
-	for (size_t i = 0; i < servent->clientSize; i++)
+	for (size_t i = 0; i < servent->clientmappingSize; i++)
 		{
 		if (UA_String_equal(&(servent->clientmapping[i].client->endpointUrl),&endpointUrl_tmp) &&
 			UA_String_equal(&(servent->clientmapping[i].client->username), &username_tmp) &&
@@ -205,7 +296,7 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 		return NULL;
 		}
 
-	char hostname[512];
+	char hostname[512] = "";
 	for(int i=10; i < portpos; i++)
 		hostname[i-10] = endpointUrl[i];
 	hostname[portpos-10] = 0;
@@ -230,32 +321,43 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 	new_client->servent = servent;
 
 	ClientMapping *clientmapping_tmp = NULL;
-	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientSize + 1));
+	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize + 1));
 	if(!clientmapping_tmp)
 		{
-		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
+		UA_Client_delete(new_client);
+		UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
 		return NULL;
 		}
 	servent->clientmapping = clientmapping_tmp;
-	servent->clientmapping[servent->clientSize].client = new_client;
-	servent->clientmapping[servent->clientSize].transferdone = UA_FALSE;
-	servent->clientSize++;
+	servent->clientmapping[servent->clientmappingSize].client = new_client;
+	servent->clientmapping[servent->clientmappingSize].transferdone = UA_FALSE;
+	servent->clientmapping[servent->clientmappingSize].NetworklayerListener = NetworklayerListener;
+	servent->clientmappingSize++;
 
 	retval = UA_Client_connect_username(new_client, endpointUrl, username, password);
 	if(retval != UA_STATUSCODE_GOOD)
 		{
+		UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "Client could not connect");
 		UA_Client_delete(new_client);
 		clientmapping_tmp = NULL;
-		servent->clientmapping[servent->clientSize].client = NULL;
-		servent->clientmapping[servent->clientSize].transferdone = UA_FALSE;
-		clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientSize - 1));
-		if(!clientmapping_tmp)
+		servent->clientmapping[servent->clientmappingSize-1].client = NULL;
+		servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_FALSE;
+		if (servent->clientmappingSize == 1)
 			{
-			UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
-			return NULL;
+			UA_free(servent->clientmapping);
+			servent->clientmapping = NULL;
 			}
-		servent->clientmapping = clientmapping_tmp;
-		servent->clientSize--;
+		else
+			{
+			clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize - 1));
+			if(!clientmapping_tmp)
+				{
+				UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
+				return NULL;
+				}
+			servent->clientmapping = clientmapping_tmp;
+			}
+		servent->clientmappingSize--;
 		return NULL;
 		}
 
@@ -264,14 +366,30 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 	if (retval != UA_STATUSCODE_GOOD)
 		{
 		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "Problem in function ServerNetworkLayerTCP_add");
+		UA_Client_disconnect(new_client);
 		UA_Client_delete(new_client);
-		clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientSize));
-		servent->clientSize--;
+		clientmapping_tmp = NULL;
+		servent->clientmapping[servent->clientmappingSize-1].client = NULL;
+		servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_FALSE;
+		if (servent->clientmappingSize == 1)
+			{
+			UA_free(servent->clientmapping);
+			servent->clientmapping = NULL;
+			}
+		else
+			{
+			clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize - 1));
+			if(!clientmapping_tmp)
+				{
+				UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
+				return NULL;
+				}
+			servent->clientmapping = clientmapping_tmp;
+			}
+		servent->clientmappingSize--;
 		return NULL;
 		}
-
 	layer->mappings[layer->mappingsSize-1].connection = &new_client->connection;
-	layer->mappings[layer->mappingsSize-1].connection->channel = &new_client->channel;
 
 	UA_OpenSecureChannelRequest opnSecRq;
 	UA_OpenSecureChannelRequest_init(&opnSecRq);
@@ -286,7 +404,8 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 	UA_OpenSecureChannelResponse_init(&openSecRe);
 	UA_Connection *connection = layer->mappings[layer->mappingsSize-1].connection;
 	Service_OpenSecureChannel(servent->server, connection, &opnSecRq, &openSecRe);
-	servent->clientmapping[servent->clientSize-1].transferdone = UA_TRUE;
+	layer->mappings[layer->mappingsSize-1].connection->channel = &new_client->channel;
+	servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_TRUE;
 
 	UA_Variant input;
 	UA_ServentClientServerTransferDataType arg;
@@ -303,7 +422,7 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 	size_t outputSize;
 	UA_Variant *output;
 	retval = UA_Client_call(new_client, UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
-					UA_NODEID_STRING(1, "ClientServerTransferMethod"), 1, &input, &outputSize, &output);
+					UA_NODEID_STRING(1, "ClientServerTransferMethod_add"), 1, &input, &outputSize, &output);
 	if(retval == UA_STATUSCODE_GOOD)
 		{
 		UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was successfull, and %lu returned values available.\n",
@@ -321,7 +440,7 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 
 	UA_Variant_deleteMembers(&input);
 
-    return servent->clientmapping[servent->clientSize-1].client;
+    return servent->clientmapping[servent->clientmappingSize-1].client;
 	}
 
 UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener)
@@ -331,7 +450,7 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 	UA_String endpointUrl_tmp = UA_STRING_NULL;
 	endpointUrl_tmp = UA_String_fromChars(endpointUrl);
 
-	for (size_t i = 0; i < servent->clientSize; i++)
+	for (size_t i = 0; i < servent->clientmappingSize; i++)
 		{
 		if (UA_String_equal(&(servent->clientmapping[i].client->endpointUrl),&endpointUrl_tmp))
 			return servent->clientmapping[i].client;
@@ -357,7 +476,7 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 		return NULL;
 		}
 
-	char hostname[512];
+	char hostname[512] = "";
 	for(int i=10; i < portpos; i++)
 		hostname[i-10] = endpointUrl[i];
 	hostname[portpos-10] = 0;
@@ -382,32 +501,43 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 
 	new_client->servent = servent;
 	ClientMapping *clientmapping_tmp = NULL;
-	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientSize + 1));
+	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize + 1));
 	if(!clientmapping_tmp)
 		{
-		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
+		UA_Client_delete(new_client);
+		UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping1");
 		return NULL;
 		}
 	servent->clientmapping = clientmapping_tmp;
-	servent->clientmapping[servent->clientSize].client = new_client;
-	servent->clientmapping[servent->clientSize].transferdone = UA_FALSE;
-	servent->clientSize++;
+	servent->clientmapping[servent->clientmappingSize].client = new_client;
+	servent->clientmapping[servent->clientmappingSize].transferdone = UA_FALSE;
+	servent->clientmapping[servent->clientmappingSize].NetworklayerListener = NetworklayerListener;
+	servent->clientmappingSize++;
 
 	retval = UA_Client_connect(new_client, endpointUrl);
 	if(retval != UA_STATUSCODE_GOOD)
 		{
+		UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "Client could not connect");
 		UA_Client_delete(new_client);
 		clientmapping_tmp = NULL;
-		servent->clientmapping[servent->clientSize].client = NULL;
-		servent->clientmapping[servent->clientSize].transferdone = UA_FALSE;
-		clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientSize - 1));
-		if(!clientmapping_tmp)
+		servent->clientmapping[servent->clientmappingSize-1].client = NULL;
+		servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_FALSE;
+		if (servent->clientmappingSize == 1)
 			{
-			UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
-			return NULL;
+			UA_free(servent->clientmapping);
+			servent->clientmapping = NULL;
 			}
-		servent->clientmapping = clientmapping_tmp;
-		servent->clientSize--;
+		else
+			{
+			clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize - 1));
+			if(!clientmapping_tmp)
+				{
+				UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping2");
+				return NULL;
+				}
+			servent->clientmapping = clientmapping_tmp;
+			}
+		servent->clientmappingSize--;
 		return NULL;
 		}
 
@@ -416,14 +546,30 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 	if (retval != UA_STATUSCODE_GOOD)
 		{
 		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "Problem in function ServerNetworkLayerTCP_add");
+		UA_Client_disconnect(new_client);
 		UA_Client_delete(new_client);
-		clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientSize));
-		servent->clientSize--;
+		clientmapping_tmp = NULL;
+		servent->clientmapping[servent->clientmappingSize-1].client = NULL;
+		servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_FALSE;
+		if (servent->clientmappingSize == 1)
+			{
+			UA_free(servent->clientmapping);
+			servent->clientmapping = NULL;
+			}
+		else
+			{
+			clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize - 1));
+			if(!clientmapping_tmp)
+				{
+				UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping3");
+				return NULL;
+				}
+			servent->clientmapping = clientmapping_tmp;
+			}
+		servent->clientmappingSize--;
 		return NULL;
 		}
-
-	layer->mappings[layer->mappingsSize-1].connection = &new_client->connection;
-	layer->mappings[layer->mappingsSize-1].connection->channel = &new_client->channel;
+	*(layer->mappings[layer->mappingsSize-1].connection) = new_client->connection;
 
 	UA_OpenSecureChannelRequest opnSecRq;
 	UA_OpenSecureChannelRequest_init(&opnSecRq);
@@ -438,7 +584,8 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 	UA_OpenSecureChannelResponse_init(&openSecRe);
 	UA_Connection *connection = layer->mappings[layer->mappingsSize-1].connection;
 	Service_OpenSecureChannel(servent->server, connection, &opnSecRq, &openSecRe);
-	servent->clientmapping[servent->clientSize-1].transferdone = UA_TRUE;
+	*(layer->mappings[layer->mappingsSize-1].connection->channel) = new_client->channel;
+	servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_TRUE;
 
 	UA_Variant input;
 	UA_ServentClientServerTransferDataType arg;
@@ -455,7 +602,7 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 	size_t outputSize;
 	UA_Variant *output;
 	retval = UA_Client_call(new_client, UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
-					UA_NODEID_STRING(1, "ClientServerTransferMethod"), 1, &input, &outputSize, &output);
+					UA_NODEID_STRING(1, "ClientServerTransferMethod_add"), 1, &input, &outputSize, &output);
 	if(retval == UA_STATUSCODE_GOOD)
 		{
 		UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was successfull, and %lu returned values available.\n",
@@ -472,7 +619,7 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 		}
 	UA_Variant_deleteMembers(&input);
 
-	return servent->clientmapping[servent->clientSize-1].client;
+	return servent->clientmapping[servent->clientmappingSize-1].client;
 	}
 
 UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer NetworklayerListener, UA_Int32 socket)
@@ -485,16 +632,18 @@ UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig cl
 	new_client->servent = servent;
 
 	ClientMapping *clientmapping_tmp = NULL;
-	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientSize + 1));
+	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize + 1));
 	if(!clientmapping_tmp)
 		{
-		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
+		UA_Client_disconnect(new_client);
+		UA_Client_delete(new_client);
+		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping4");
 		return NULL;
 		}
 	servent->clientmapping = clientmapping_tmp;
-	servent->clientmapping[servent->clientSize].client = new_client;
-	servent->clientmapping[servent->clientSize].transferdone = UA_FALSE;
-	servent->clientSize++;
+	servent->clientmapping[servent->clientmappingSize].client = new_client;
+	servent->clientmapping[servent->clientmappingSize].transferdone = UA_FALSE;
+	servent->clientmappingSize++;
 
 	for (size_t i = 0; i < layer->mappingsSize; i++)
 		{
@@ -505,22 +654,32 @@ UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig cl
 			new_client->scRenewAt = UA_DateTime_now() + (UA_DateTime)(layer->mappings[i].connection->channel->securityToken.revisedLifetime * (UA_Double)UA_MSEC_TO_DATETIME * 0.75);
 			new_client->channel.sendSequenceNumber = 0;
 			new_client->channel.receiveSequenceNumber = 1;
-			servent->clientmapping[servent->clientSize-1].transferdone = UA_TRUE;
+			servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_TRUE;
 			UA_StatusCode retval = UA_Client_connect_Session(new_client, endpointUrl);
 			if(retval != UA_STATUSCODE_GOOD)
 				{
+				UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "Client could not connect");
+				UA_Client_disconnect(new_client);
 				UA_Client_delete(new_client);
 				clientmapping_tmp = NULL;
-				servent->clientmapping[servent->clientSize].client = NULL;
-				servent->clientmapping[servent->clientSize].transferdone = UA_FALSE;
-				clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientSize - 1));
-				if(!clientmapping_tmp)
+				servent->clientmapping[servent->clientmappingSize-1].client = NULL;
+				servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_FALSE;
+				if (servent->clientmappingSize == 1)
 					{
-					UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
-					return NULL;
+					UA_free(servent->clientmapping);
+					servent->clientmapping = NULL;
 					}
-				servent->clientmapping = clientmapping_tmp;
-				servent->clientSize--;
+				else
+					{
+					clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize - 1));
+					if(!clientmapping_tmp)
+						{
+						UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping5");
+						return NULL;
+						}
+					servent->clientmapping = clientmapping_tmp;
+					}
+				servent->clientmappingSize--;
 				return NULL;
 				}
 			return new_client;
@@ -529,6 +688,92 @@ UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig cl
 
 	return NULL;
 	}
+
+UA_StatusCode UA_Servent_disconnect(UA_Servent *servent, UA_Client *client)
+	{
+	ClientMapping *clientmapping_tmp = NULL;
+	for (size_t i = 0; i < servent->clientmappingSize; i++)
+		{
+		if (servent->clientmapping[i].client == client)
+			{
+//			UA_Variant input;
+//			UA_ServentClientServerTransferDataType arg;
+//			struct sockaddr_in addr;
+//			socklen_t addrlen = sizeof(struct sockaddr_in);
+//			getsockname(client->connection.sockfd, (struct sockaddr*)&addr, &addrlen);
+//
+//			arg.url = UA_String_fromChars(inet_ntoa(addr.sin_addr));
+//			arg.clientPort = ntohs(addr.sin_port);
+//			arg.serverPort = 0;
+//
+//			UA_Variant_init(&input);
+//			UA_Variant_setScalarCopy(&input, &arg, &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERDATATYPE]);
+//			size_t outputSize;
+//			UA_Variant *output;
+//			UA_StatusCode retval = UA_Client_call(client, UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+//							UA_NODEID_STRING(1, "ClientServerTransferMethod_delete"), 1, &input, &outputSize, &output);
+//			if(retval == UA_STATUSCODE_GOOD)
+//				{
+//				UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was successfull, and %lu returned values available.\n",
+//					   (unsigned long)outputSize);
+//				if (((UA_StatusCode*)output->data)[0] != UA_STATUSCODE_GOOD)
+//					{
+//					UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "Method call response was bad");
+//					}
+//				UA_Array_delete(output, outputSize, &UA_TYPES[UA_TYPES_VARIANT]);
+//				}
+//			else
+//				{
+//				UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was unsuccessfull, and %x returned values available.\n", retval);
+//				}
+//			UA_Variant_deleteMembers(&input);
+
+
+
+			ServerNetworkLayerTCP *layer = servent->clientmapping[i].NetworklayerListener.handle;
+			for (size_t j = 0; j < layer->mappingsSize; j++)
+				{
+				if (layer->mappings[j].connection == &(client->connection))
+					{
+					//Service_CloseSecureChannel(servent->server, layer->mappings[j].connection->channel);
+					layer->mappings[j] = layer->mappings[layer->mappingsSize-1];
+					layer->mappingsSize--;
+					if (layer->mappingsSize == 0)
+						{
+						UA_free(layer->mappings);
+						layer->mappings = NULL;
+						}
+					}
+				}
+
+			servent->clientmapping[i].transferdone = UA_FALSE;
+			UA_Client_disconnect(client);
+			UA_Client_delete(client);
+			if (servent->clientmappingSize == 1)
+				{
+				UA_free(servent->clientmapping);
+				servent->clientmapping = NULL;
+				}
+			else
+				{
+				servent->clientmapping[i].client = servent->clientmapping[servent->clientmappingSize-1].client;
+				servent->clientmapping[i].transferdone = servent->clientmapping[servent->clientmappingSize-1].transferdone;
+				servent->clientmapping[i].NetworklayerListener = servent->clientmapping[servent->clientmappingSize-1].NetworklayerListener;
+				clientmapping_tmp = NULL;
+				clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize - 1));
+				if(!clientmapping_tmp)
+					{
+					UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping6");
+					return UA_STATUSCODE_BADOUTOFMEMORY;
+					}
+				servent->clientmapping = clientmapping_tmp;
+				}
+			servent->clientmappingSize--;
+			}
+		}
+	return UA_STATUSCODE_GOOD;
+	}
+
 
 static void completeMessagesServent(UA_Servent *servent, UA_Job *job)
 	{

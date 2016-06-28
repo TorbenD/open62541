@@ -259,7 +259,7 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
     UA_ByteString_init(&reply);
     UA_Boolean realloced = false;
 #ifdef UA_ENABLE_SERVENT
-    for (size_t i = 0; i < client->servent->clientSize; i++)
+    for (size_t i = 0; i < client->servent->clientmappingSize; i++)
     	{
     	if (client->servent->clientmapping[i].client == client)
     		{
@@ -784,7 +784,7 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
     UA_ByteString_init(&reply);
     UA_Boolean realloced = false;
 #ifdef UA_ENABLE_SERVENT
-    for (size_t i = 0; i < client->servent->clientSize; i++)
+    for (size_t i = 0; i < client->servent->clientmappingSize; i++)
     	{
     	if (client->servent->clientmapping[i].client == client)
     		{
