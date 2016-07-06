@@ -55,6 +55,19 @@
 # include <urcu/uatomic.h>
 #endif
 
+
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
+
+#ifdef UA_ENABLE_SERVENT
+#include "ua_servent.h"
+#include "..//src//client//ua_client_internal.h"
+#include "..//src//server//ua_server_internal.h"
+#include "..//src_generated//ua_transport_generated_encoding_binary.h"
+#endif
+
 /****************************/
 /* Generic Socket Functions */
 /****************************/
@@ -95,7 +108,7 @@ socket_write(UA_Connection *connection, UA_ByteString *buf) {
 }
 
 static UA_StatusCode
-socket_recv(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeout) {
+socket_recv_normal(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeout) {
     response->data = malloc(connection->localConf.recvBufferSize);
     if(!response->data) {
         response->length = 0;
@@ -175,6 +188,54 @@ socket_recv(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeou
     response->length = (size_t)ret;
     return UA_STATUSCODE_GOOD;
 }
+
+static UA_StatusCode
+socket_recv_servent(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeout)
+	{
+	UA_StatusCode retval = UA_STATUSCODE_GOOD;
+	UA_Servent *servent = connection->handle;
+
+	for (size_t i = 0; i < servent->clientmappingSize; i++)
+		{
+		if (servent->clientmapping[i].client->connection == connection)
+			{
+			if (servent->clientmapping[i].transferdone == UA_TRUE)
+				{
+				retval = GetWorkFromNetworklayerServent (servent, (UA_UInt16)servent->clientmapping[i].client->config.timeout);
+				for (size_t j = 0; j < servent->server->config.networkLayersSize; j++)
+					{
+					if ((servent->clientmapping[i].NetworklayerListener) == &(servent->server->config.networkLayers[j]) && servent->networklayerjobs[i].clientJobsSize > 0)
+						{
+						UA_String_copy(&servent->networklayerjobs[i].clientjobs[0].job.binaryMessage.message, response);
+						servent->networklayerjobs[i].clientJobsSize = 0;
+						UA_free (servent->networklayerjobs[i].clientjobs);
+						servent->networklayerjobs[i].clientjobs = NULL;
+						break;
+						}
+					}
+				break;
+				}
+			else
+				{
+				retval = socket_recv_normal(connection, response, servent->clientmapping[i].client->config.timeout);
+				}
+			}
+		}
+	return retval;
+	}
+
+static UA_StatusCode
+socket_recv(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeout)
+	{
+	if (!connection->handle)
+		{
+		return socket_recv_normal(connection, response, timeout);
+		}
+	else
+		{
+		return socket_recv_servent(connection, response, timeout);
+		}
+	}
 
 static UA_StatusCode socket_set_nonblocking(SOCKET sockfd) {
 #ifdef _WIN32
@@ -273,12 +334,6 @@ ServerNetworkLayerTCP_closeConnection(UA_Connection *connection) {
         return;
     connection->state = UA_CONNECTION_CLOSED;
 #endif
-#if UA_LOGLEVEL <= 300
-   //cppcheck-suppress unreadVariable
-    ServerNetworkLayerTCP *layer = connection->handle;
-    UA_LOG_INFO(layer->logger, UA_LOGCATEGORY_NETWORK, "Connection %i | Force closing the connection",
-                connection->sockfd);
-#endif
     /* only "shutdown" here. this triggers the select, where the socket is
        "closed" in the mainloop */
     shutdown(connection->sockfd, 2);
@@ -303,9 +358,10 @@ ServerNetworkLayerTCP_add(ServerNetworkLayerTCP *layer, UA_Int32 newsockfd) {
     }
     UA_Connection_init(c);
     c->sockfd = newsockfd;
-    c->handle = layer;
+    c->handle = NULL;
     c->localConf = layer->conf;
     c->send = socket_write;
+    c->recv = socket_recv;
     c->close = ServerNetworkLayerTCP_closeConnection;
     c->getSendBuffer = ServerNetworkLayerGetSendBuffer;
     c->releaseSendBuffer = ServerNetworkLayerReleaseSendBuffer;
@@ -388,7 +444,7 @@ ServerNetworkLayerTCP_start(UA_ServerNetworkLayer *nl, UA_Logger logger) {
 }
 
 static size_t
-ServerNetworkLayerTCP_getJobs(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt16 timeout) {
+ServerNetworkLayerTCP_getJobs_normal(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt16 timeout) {
     ServerNetworkLayerTCP *layer = nl->handle;
     fd_set fdset, errset;
     UA_Int32 highestfd = setFDSet(layer, &fdset);
@@ -433,7 +489,7 @@ ServerNetworkLayerTCP_getJobs(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt1
            !UA_fd_isset(layer->mappings[i].sockfd, &fdset))
           continue;
 
-        UA_StatusCode retval = socket_recv(layer->mappings[i].connection, &buf, 0);
+        UA_StatusCode retval = socket_recv_normal(layer->mappings[i].connection, &buf, 0);
         if(retval == UA_STATUSCODE_GOOD) {
             js[j].job.binaryMessage.connection = layer->mappings[i].connection;
             js[j].job.binaryMessage.message = buf;
@@ -464,6 +520,157 @@ ServerNetworkLayerTCP_getJobs(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt1
     *jobs = js;
     return j;
 }
+
+static size_t
+ServerNetworkLayerTCP_getJobs_servent(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt16 timeout)
+	{
+	ServerNetworkLayerTCP *layer = nl->handle;
+	UA_Servent *servent = layer->mappings[0].connection->handle;
+	UA_Job *sj = NULL;
+	size_t jobsSize;
+	jobsSize = ServerNetworkLayerTCP_getJobs_normal(nl, jobs, timeout);
+	UA_Job *jobs_tmp = *jobs;
+	// If there are Jobs then they have to be completed and sorted by Request/Responses
+	for(size_t k = 0; k < jobsSize; k++)
+		{
+		for(size_t i = 0; i < servent->server->config.networkLayersSize; i++)
+			{
+			if (&(servent->server->config.networkLayers[i]) == nl)
+				{
+				switch (jobs_tmp[k].type)
+					{
+					case UA_JOBTYPE_NOTHING: ///< Guess what?
+					break;
+					case UA_JOBTYPE_DETACHCONNECTION: ///< Detach the connection from the secure channel (but don't delete it)
+						sj = NULL;
+						sj = UA_realloc (servent->networklayerjobs[i].serverjobs, sizeof(UA_Job) * (servent->networklayerjobs[i].serverJobsSize + 1));
+						if(!sj)
+							{
+							UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new Job");
+							return UA_STATUSCODE_BADINTERNALERROR;
+							}
+						servent->networklayerjobs[i].serverjobs = sj;
+						servent->networklayerjobs[i].serverjobs[servent->networklayerjobs[i].serverJobsSize] = jobs_tmp[k];
+						servent->networklayerjobs[i].serverJobsSize++;
+					break;
+					case UA_JOBTYPE_BINARYMESSAGE_NETWORKLAYER: ///< The binary message is memory managed by the networklayer
+					case UA_JOBTYPE_BINARYMESSAGE_ALLOCATED: ///< The binary message was relocated away from the networklayer
+						;
+						size_t pos = 0;
+						UA_TcpMessageHeader tcpMessageHeader;
+						const UA_ByteString *msg = &jobs_tmp[k].job.binaryMessage.message;
+						UA_Connection *connection = jobs_tmp[k].job.binaryMessage.connection;
+
+						/* Decode the message header */
+						UA_StatusCode retval = UA_TcpMessageHeader_decodeBinary(msg, &pos, &tcpMessageHeader);
+						if(retval != UA_STATUSCODE_GOOD)
+							{
+							UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_NETWORK,
+										"Decoding of message header failed on Connection %i", connection->sockfd);
+							connection->close(connection);
+							break;
+							}
+						if(tcpMessageHeader.messageSize < 16)
+							{
+							UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_NETWORK,
+										"The message is suspiciously small on Connection %i", connection->sockfd);
+							connection->close(connection);
+							break;
+							}
+
+						/* Check the message if it is a request or a response */
+						switch(tcpMessageHeader.messageTypeAndChunkType & 0x30000000)
+							{
+							case UA_RORTYPE_REQUEST:
+								sj = NULL;
+								sj = UA_realloc (servent->networklayerjobs[i].serverjobs, sizeof(UA_Job) * (servent->networklayerjobs[i].serverJobsSize + 1));
+								if(!sj)
+									{
+									UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new Job");
+									return UA_STATUSCODE_BADINTERNALERROR;
+									}
+								servent->networklayerjobs[i].serverjobs = sj;
+								servent->networklayerjobs[i].serverjobs[servent->networklayerjobs[i].serverJobsSize] = jobs_tmp[k];
+								servent->networklayerjobs[i].serverJobsSize++;
+							break;
+							case UA_RORTYPE_RESPONSE:
+								sj = NULL;
+								sj = UA_realloc (servent->networklayerjobs[i].clientjobs, sizeof(UA_Job) * (servent->networklayerjobs[i].clientJobsSize + 1));
+								if(!sj)
+									{
+									UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new Job");
+									return UA_STATUSCODE_BADINTERNALERROR;
+									}
+								servent->networklayerjobs[i].clientjobs = sj;
+								servent->networklayerjobs[i].clientjobs[servent->networklayerjobs[i].clientJobsSize] = jobs_tmp[k];
+								servent->networklayerjobs[i].clientJobsSize++;
+							break;
+							default:
+								sj = NULL;
+								sj = UA_realloc (servent->networklayerjobs[i].serverjobs, sizeof(UA_Job) * (servent->networklayerjobs[i].serverJobsSize + 1));
+								if(!sj)
+									{
+									UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new Job");
+									return UA_STATUSCODE_BADINTERNALERROR;
+									}
+								servent->networklayerjobs[i].serverjobs = sj;
+								servent->networklayerjobs[i].serverjobs[servent->networklayerjobs[i].serverJobsSize] = jobs_tmp[k];
+								servent->networklayerjobs[i].serverJobsSize++;
+							break;
+							}
+
+					break;
+					case UA_JOBTYPE_METHODCALL: ///< Call the method as soon as possible
+						sj = NULL;
+						sj = UA_realloc (servent->networklayerjobs[i].serverjobs, sizeof(UA_Job) * (servent->networklayerjobs[i].serverJobsSize + 1));
+						if(!sj)
+							{
+							UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new Job");
+							return UA_STATUSCODE_BADINTERNALERROR;
+							}
+						servent->networklayerjobs[i].serverjobs = sj;
+						servent->networklayerjobs[i].serverjobs[servent->networklayerjobs[i].serverJobsSize] = jobs_tmp[k];
+						servent->networklayerjobs[i].serverJobsSize++;
+					break;
+					case UA_JOBTYPE_METHODCALL_DELAYED: ///< Call the method as soon as all previous jobs have finished
+						sj = NULL;
+						sj = UA_realloc (servent->networklayerjobs[i].serverjobs, sizeof(UA_Job) * (servent->networklayerjobs[i].serverJobsSize + 1));
+						if(!sj)
+							{
+							UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new Job");
+							return UA_STATUSCODE_BADINTERNALERROR;
+							}
+						servent->networklayerjobs[i].serverjobs = sj;
+						servent->networklayerjobs[i].serverjobs[servent->networklayerjobs[i].serverJobsSize] = jobs_tmp[k];
+						servent->networklayerjobs[i].serverJobsSize++;
+					break;
+					default:
+					break;
+					}
+				}
+			}
+		}
+	return jobsSize;
+	}
+
+static size_t
+ServerNetworkLayerTCP_getJobs(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt16 timeout)
+	{
+	ServerNetworkLayerTCP *layer = nl->handle;
+	if (layer->mappingsSize == 0)
+		{
+		return ServerNetworkLayerTCP_getJobs_normal(nl, jobs, timeout);
+		}
+	if (!layer->mappings[0].connection->handle)
+		{
+		return ServerNetworkLayerTCP_getJobs_normal(nl, jobs, timeout);
+		}
+	else
+		{
+		return ServerNetworkLayerTCP_getJobs_servent(nl, jobs, timeout);
+		}
+	}
+
 
 static size_t
 ServerNetworkLayerTCP_stop(UA_ServerNetworkLayer *nl, UA_Job **jobs) {
