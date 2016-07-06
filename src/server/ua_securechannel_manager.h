@@ -7,7 +7,7 @@
 #include "queue.h"
 
 typedef struct channel_list_entry {
-    UA_SecureChannel channel;
+    UA_SecureChannel *channel;
     LIST_ENTRY(channel_list_entry) pointers;
 } channel_list_entry;
 

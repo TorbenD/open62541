@@ -19,14 +19,14 @@ void UA_SecureChannelManager_deleteMembers(UA_SecureChannelManager *cm) {
     channel_list_entry *entry, *temp;
     LIST_FOREACH_SAFE(entry, &cm->channels, pointers, temp) {
         LIST_REMOVE(entry, pointers);
-        UA_SecureChannel_deleteMembersCleanup(&entry->channel);
+        UA_SecureChannel_deleteMembersCleanup(entry->channel);
         UA_free(entry);
     }
 }
 
 static void removeSecureChannel(UA_SecureChannelManager *cm, channel_list_entry *entry){
     LIST_REMOVE(entry, pointers);
-    UA_SecureChannel_deleteMembersCleanup(&entry->channel);
+    UA_SecureChannel_deleteMembersCleanup(entry->channel);
 #ifndef UA_ENABLE_MULTITHREADING
     cm->currentChannelCount--;
     UA_free(entry);
@@ -40,13 +40,13 @@ void UA_SecureChannelManager_cleanupTimedOut(UA_SecureChannelManager *cm, UA_Dat
     channel_list_entry *entry, *temp;
     LIST_FOREACH_SAFE(entry, &cm->channels, pointers, temp) {
         UA_DateTime timeout =
-            entry->channel.securityToken.createdAt +
-            (UA_DateTime)(entry->channel.securityToken.revisedLifetime * UA_MSEC_TO_DATETIME);
-        if(timeout < now || !entry->channel.connection) {
-            UA_LOG_DEBUG_CHANNEL(cm->server->config.logger, (&entry->channel), "SecureChannel has timed out");
+            entry->channel->securityToken.createdAt +
+            (UA_DateTime)(entry->channel->securityToken.revisedLifetime * UA_MSEC_TO_DATETIME);
+        if(timeout < now || !entry->channel->connection) {
+            UA_LOG_DEBUG_CHANNEL(cm->server->config.logger, (entry->channel), "SecureChannel has timed out");
             removeSecureChannel(cm, entry);
-        } else if(entry->channel.nextSecurityToken.tokenId > 0) {
-            UA_SecureChannel_revolveTokens(&entry->channel);
+        } else if(entry->channel->nextSecurityToken.tokenId > 0) {
+            UA_SecureChannel_revolveTokens(entry->channel);
         }
     }
 }
@@ -55,8 +55,8 @@ void UA_SecureChannelManager_cleanupTimedOut(UA_SecureChannelManager *cm, UA_Dat
 static UA_Boolean purgeFirstChannelWithoutSession(UA_SecureChannelManager *cm) {
     channel_list_entry *entry;
     LIST_FOREACH(entry, &cm->channels, pointers) {
-        if(LIST_EMPTY(&(entry->channel.sessions))){
-            UA_LOG_DEBUG_CHANNEL(cm->server->config.logger, (&entry->channel), "Channel was purged since maxSecureChannels was reached and channel had no session attached");
+        if(LIST_EMPTY(&(entry->channel->sessions))){
+            UA_LOG_DEBUG_CHANNEL(cm->server->config.logger, (entry->channel), "Channel was purged since maxSecureChannels was reached and channel had no session attached");
             removeSecureChannel(cm, entry);
             UA_assert(entry != LIST_FIRST(&cm->channels));
             return true;
@@ -78,6 +78,10 @@ UA_SecureChannelManager_open(UA_SecureChannelManager *cm, UA_Connection *conn,
     }
     channel_list_entry *entry = UA_malloc(sizeof(channel_list_entry));
     if(!entry)
+		return UA_STATUSCODE_BADOUTOFMEMORY;
+    entry->channel = UA_malloc(sizeof(UA_SecureChannel));
+
+    if(!entry->channel)
         return UA_STATUSCODE_BADOUTOFMEMORY;
 #ifndef UA_ENABLE_MULTITHREADING
     cm->currentChannelCount++;
@@ -85,31 +89,31 @@ UA_SecureChannelManager_open(UA_SecureChannelManager *cm, UA_Connection *conn,
     cm->currentChannelCount = uatomic_add_return(&cm->currentChannelCount, 1);
 #endif
 
-    UA_SecureChannel_init(&entry->channel);
+    UA_SecureChannel_init(entry->channel);
     response->responseHeader.stringTableSize = 0;
     response->responseHeader.timestamp = UA_DateTime_now();
     response->serverProtocolVersion = 0;
 
-    entry->channel.securityToken.channelId = cm->lastChannelId++;
-    entry->channel.securityToken.tokenId = cm->lastTokenId++;
-    entry->channel.securityToken.createdAt = UA_DateTime_now();
-    entry->channel.securityToken.revisedLifetime =
+    entry->channel->securityToken.channelId = cm->lastChannelId++;
+    entry->channel->securityToken.tokenId = cm->lastTokenId++;
+    entry->channel->securityToken.createdAt = UA_DateTime_now();
+    entry->channel->securityToken.revisedLifetime =
         (request->requestedLifetime > cm->server->config.maxSecurityTokenLifetime) ?
         cm->server->config.maxSecurityTokenLifetime : request->requestedLifetime;
     /* lifetime 0 -> set the maximum possible */
-    if(entry->channel.securityToken.revisedLifetime == 0)
-        entry->channel.securityToken.revisedLifetime = cm->server->config.maxSecurityTokenLifetime;
+    if(entry->channel->securityToken.revisedLifetime == 0)
+        entry->channel->securityToken.revisedLifetime = cm->server->config.maxSecurityTokenLifetime;
 
-    UA_ByteString_copy(&request->clientNonce, &entry->channel.clientNonce);
-    entry->channel.serverAsymAlgSettings.securityPolicyUri = UA_STRING_ALLOC(
+    UA_ByteString_copy(&request->clientNonce, &entry->channel->clientNonce);
+    entry->channel->serverAsymAlgSettings.securityPolicyUri = UA_STRING_ALLOC(
             "http://opcfoundation.org/UA/SecurityPolicy#None");
 
-    UA_SecureChannel_generateNonce(&entry->channel.serverNonce);
-    UA_ByteString_copy(&entry->channel.serverNonce, &response->serverNonce);
-    UA_ChannelSecurityToken_copy(&entry->channel.securityToken,
+    UA_SecureChannel_generateNonce(&entry->channel->serverNonce);
+    UA_ByteString_copy(&entry->channel->serverNonce, &response->serverNonce);
+    UA_ChannelSecurityToken_copy(&entry->channel->securityToken,
             &response->securityToken);
 
-    UA_Connection_attachSecureChannel(conn, &entry->channel);
+    UA_Connection_attachSecureChannel(conn, entry->channel);
     LIST_INSERT_HEAD(&cm->channels, entry, pointers);
     return UA_STATUSCODE_GOOD;
 }
@@ -147,8 +151,8 @@ UA_SecureChannelManager_renew(UA_SecureChannelManager *cm, UA_Connection *conn,
 UA_SecureChannel * UA_SecureChannelManager_get(UA_SecureChannelManager *cm, UA_UInt32 channelId) {
     channel_list_entry *entry;
     LIST_FOREACH(entry, &cm->channels, pointers) {
-        if(entry->channel.securityToken.channelId == channelId)
-            return &entry->channel;
+        if(entry->channel->securityToken.channelId == channelId)
+            return entry->channel;
     }
     return NULL;
 }
@@ -156,14 +160,14 @@ UA_SecureChannel * UA_SecureChannelManager_get(UA_SecureChannelManager *cm, UA_U
 UA_StatusCode UA_SecureChannelManager_close(UA_SecureChannelManager *cm, UA_UInt32 channelId) {
     channel_list_entry *entry;
     LIST_FOREACH(entry, &cm->channels, pointers) {
-        if(entry->channel.securityToken.channelId == channelId)
+        if(entry->channel->securityToken.channelId == channelId)
             break;
     }
     if(!entry)
         return UA_STATUSCODE_BADINTERNALERROR;
 
     LIST_REMOVE(entry, pointers);
-    UA_SecureChannel_deleteMembersCleanup(&entry->channel);
+    UA_SecureChannel_deleteMembersCleanup(entry->channel);
 #ifndef UA_ENABLE_MULTITHREADING
     cm->currentChannelCount--;
     UA_free(entry);

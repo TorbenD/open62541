@@ -1,9 +1,6 @@
 #include "ua_util.h"
 #include "ua_server_internal.h"
 
-#ifdef UA_ENABLE_SERVENT
-	#include "ua_servent.h"
-#endif
 /**
  * There are four types of job execution:
  *
@@ -636,28 +633,6 @@ UA_UInt16 UA_Server_run_iterate(UA_Server *server, UA_Boolean waitInternal) {
     if(waitInternal)
         timeout = (UA_UInt16)((nextRepeated - now) / UA_MSEC_TO_DATETIME);
 
-#ifdef UA_ENABLE_SERVENT
-    // ToDo: Check for Multithreading
-    UA_StatusCode retval = GetWorkFromNetworklayerServent (server->servent, timeout);
-	if (retval != UA_STATUSCODE_GOOD)
-		{
-		UA_LOG_WARNING(server->config.logger, UA_LOGCATEGORY_SERVER,
-								   "Error in funciton GetWorkFromNetworklayerServent");
-		}
-	/* Get work from the networklayer */
-	for(size_t i = 0; i < server->config.networkLayersSize; i++)
-		{
-		UA_Job *jobs = server->servent->networklayerjobs[i].serverjobs;
-		size_t jobsSize = server->servent->networklayerjobs[i].serverJobsSize;
-		if (jobsSize > 0)
-			{
-			processJobs(server, jobs, jobsSize);
-			UA_free(jobs);
-			server->servent->networklayerjobs[i].serverjobs = NULL;
-			}
-		server->servent->networklayerjobs[i].serverJobsSize = 0;
-		}
-#else
     /* Get work from the networklayer */
     for(size_t i = 0; i < server->config.networkLayersSize; i++)
     	{
@@ -697,7 +672,6 @@ UA_UInt16 UA_Server_run_iterate(UA_Server *server, UA_Boolean waitInternal) {
             UA_free(jobs);
 #endif
     	}
-#endif
 
     now = UA_DateTime_nowMonotonic();
     timeout = 0;

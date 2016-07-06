@@ -12,11 +12,6 @@
 #define ANONYMOUS_POLICY "open62541-anonymous-policy"
 #define USERNAME_POLICY "open62541-username-policy"
 
-#ifdef UA_ENABLE_SERVENT
-	struct UA_Servent;
-	typedef struct UA_Servent UA_Servent;
-#endif
-
 
 
 #ifdef UA_ENABLE_EXTERNAL_NAMESPACES
@@ -78,10 +73,6 @@ struct UA_Server {
     /* Config is the last element so that MSVC allows the usernamePasswordLogins
        field with zero-sized array */
     UA_ServerConfig config;
-
-#ifdef UA_ENABLE_SERVENT
-    UA_Servent *servent;
-#endif
 };
 
 typedef UA_StatusCode (*UA_EditNodeCallback)(UA_Server*, UA_Session*, UA_Node*, const void*);

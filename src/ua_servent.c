@@ -23,6 +23,7 @@
 #include "ua_client_highlevel.h"
 #include "stdio.h"
 #include <inttypes.h>
+#include <queue.h>
 
 
 
@@ -183,7 +184,6 @@ UA_Servent * UA_Servent_new(UA_ServerConfig config)
         return NULL;
 
     servent->server = UA_Server_new(config);
-    servent->server->servent = servent;
 
 	// Method for Client-Server-Relation
     UA_Argument inputArguments;
@@ -318,7 +318,6 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 	new_client = UA_Client_new(clientconfig);
 	if(!new_client)
 		return NULL;
-	new_client->servent = servent;
 
 	ClientMapping *clientmapping_tmp = NULL;
 	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize + 1));
@@ -360,9 +359,10 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 		servent->clientmappingSize--;
 		return NULL;
 		}
+	new_client->connection->handle = servent;
 
 	ServerNetworkLayerTCP *layer = NetworklayerListener->handle;
-	retval = ServerNetworkLayerTCP_add(layer, new_client->connection.sockfd);
+	retval = ServerNetworkLayerTCP_add(layer, new_client->connection->sockfd);
 	if (retval != UA_STATUSCODE_GOOD)
 		{
 		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "Problem in function ServerNetworkLayerTCP_add");
@@ -389,7 +389,8 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 		servent->clientmappingSize--;
 		return NULL;
 		}
-	layer->mappings[layer->mappingsSize-1].connection = &new_client->connection;
+	UA_free(layer->mappings[layer->mappingsSize-1].connection);
+	layer->mappings[layer->mappingsSize-1].connection = new_client->connection;
 
 	UA_OpenSecureChannelRequest opnSecRq;
 	UA_OpenSecureChannelRequest_init(&opnSecRq);
@@ -397,21 +398,20 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 	opnSecRq.requestHeader.authenticationToken = new_client->authenticationToken;
 	opnSecRq.requestedLifetime = new_client->config.secureChannelLifeTime;
 	opnSecRq.requestType = UA_SECURITYTOKENREQUESTTYPE_ISSUE;
-	UA_ByteString_copy(&new_client->channel.clientNonce, &opnSecRq.clientNonce);
+	UA_ByteString_copy(&new_client->channel->clientNonce, &opnSecRq.clientNonce);
 	opnSecRq.securityMode = UA_MESSAGESECURITYMODE_NONE;
 
 	UA_OpenSecureChannelResponse openSecRe;
 	UA_OpenSecureChannelResponse_init(&openSecRe);
 	UA_Connection *connection = layer->mappings[layer->mappingsSize-1].connection;
 	Service_OpenSecureChannel(servent->server, connection, &opnSecRq, &openSecRe);
-	layer->mappings[layer->mappingsSize-1].connection->channel = &new_client->channel;
 	servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_TRUE;
 
 	UA_Variant input;
 	UA_ServentClientServerTransferDataType arg;
 	struct sockaddr_in addr;
 	socklen_t addrlen = sizeof(struct sockaddr_in);
-	getsockname(new_client->connection.sockfd, (struct sockaddr*)&addr, &addrlen);
+	getsockname(new_client->connection->sockfd, (struct sockaddr*)&addr, &addrlen);
 
 	arg.url = UA_String_fromChars(inet_ntoa(addr.sin_addr));
 	arg.clientPort = ntohs(addr.sin_port);
@@ -499,7 +499,7 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 	if(!new_client)
 		return NULL;
 
-	new_client->servent = servent;
+	//new_client->servent = servent;
 	ClientMapping *clientmapping_tmp = NULL;
 	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize + 1));
 	if(!clientmapping_tmp)
@@ -540,9 +540,10 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 		servent->clientmappingSize--;
 		return NULL;
 		}
+	new_client->connection->handle = servent;
 
 	ServerNetworkLayerTCP *layer = NetworklayerListener->handle;
-	retval = ServerNetworkLayerTCP_add(layer, new_client->connection.sockfd);
+	retval = ServerNetworkLayerTCP_add(layer, new_client->connection->sockfd);
 	if (retval != UA_STATUSCODE_GOOD)
 		{
 		UA_LOG_ERROR(new_client->config.logger, UA_LOGCATEGORY_NETWORK, "Problem in function ServerNetworkLayerTCP_add");
@@ -569,7 +570,8 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 		servent->clientmappingSize--;
 		return NULL;
 		}
-	*(layer->mappings[layer->mappingsSize-1].connection) = new_client->connection;
+	UA_free(layer->mappings[layer->mappingsSize-1].connection);
+	layer->mappings[layer->mappingsSize-1].connection = new_client->connection;
 
 	UA_OpenSecureChannelRequest opnSecRq;
 	UA_OpenSecureChannelRequest_init(&opnSecRq);
@@ -577,21 +579,37 @@ UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig
 	opnSecRq.requestHeader.authenticationToken = new_client->authenticationToken;
 	opnSecRq.requestedLifetime = new_client->config.secureChannelLifeTime;
 	opnSecRq.requestType = UA_SECURITYTOKENREQUESTTYPE_ISSUE;
-	UA_ByteString_copy(&new_client->channel.clientNonce, &opnSecRq.clientNonce);
+	UA_ByteString_copy(&new_client->channel->clientNonce, &opnSecRq.clientNonce);
 	opnSecRq.securityMode = UA_MESSAGESECURITYMODE_NONE;
 
 	UA_OpenSecureChannelResponse openSecRe;
 	UA_OpenSecureChannelResponse_init(&openSecRe);
 	UA_Connection *connection = layer->mappings[layer->mappingsSize-1].connection;
 	Service_OpenSecureChannel(servent->server, connection, &opnSecRq, &openSecRe);
-	*(layer->mappings[layer->mappingsSize-1].connection->channel) = new_client->channel;
+	channel_list_entry *entry;
+	LIST_FOREACH(entry, &servent->server->secureChannelManager.channels, pointers)
+		{
+		if(entry->channel->securityToken.channelId == connection->channel->securityToken.channelId)
+			break;
+		}
+	if(!entry)
+		{
+		UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "Problem in searching the SecureChannel");
+		return NULL;
+		}
+
+	LIST_REMOVE(entry, pointers);
+	entry->channel = new_client->channel;
+	LIST_INSERT_HEAD(&servent->server->secureChannelManager.channels, entry, pointers);
+
+	layer->mappings[layer->mappingsSize-1].connection->channel = new_client->channel;
 	servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_TRUE;
 
 	UA_Variant input;
 	UA_ServentClientServerTransferDataType arg;
 	struct sockaddr_in addr;
 	socklen_t addrlen = sizeof(struct sockaddr_in);
-	getsockname(new_client->connection.sockfd, (struct sockaddr*)&addr, &addrlen);
+	getsockname(new_client->connection->sockfd, (struct sockaddr*)&addr, &addrlen);
 
 	arg.url = UA_String_fromChars(inet_ntoa(addr.sin_addr));
 	arg.clientPort = ntohs(addr.sin_port);
@@ -629,7 +647,6 @@ UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig cl
 	UA_Client *new_client = UA_Client_new(clientconfig);
 	if(!new_client)
 		return NULL;
-	new_client->servent = servent;
 
 	ClientMapping *clientmapping_tmp = NULL;
 	clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize + 1));
@@ -643,17 +660,22 @@ UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig cl
 	servent->clientmapping = clientmapping_tmp;
 	servent->clientmapping[servent->clientmappingSize].client = new_client;
 	servent->clientmapping[servent->clientmappingSize].transferdone = UA_FALSE;
+	servent->clientmapping[servent->clientmappingSize].NetworklayerListener = NetworklayerListener;
 	servent->clientmappingSize++;
 
 	for (size_t i = 0; i < layer->mappingsSize; i++)
 		{
 		if (layer->mappings[i].connection->sockfd == socket)
 			{
-			new_client->connection = *(layer->mappings[i].connection);
-			new_client->channel = *(layer->mappings[i].connection->channel);
+
+			UA_free(new_client->connection);
+			UA_free(new_client->channel);
+			new_client->connection = layer->mappings[i].connection;
+			new_client->channel = layer->mappings[i].connection->channel;
 			new_client->scRenewAt = UA_DateTime_now() + (UA_DateTime)(layer->mappings[i].connection->channel->securityToken.revisedLifetime * (UA_Double)UA_MSEC_TO_DATETIME * 0.75);
-			new_client->channel.sendSequenceNumber = 0;
-			new_client->channel.receiveSequenceNumber = 1;
+			//new_client->channel->sendSequenceNumber = 0;
+			//new_client->channel->receiveSequenceNumber = 1;
+			new_client->connection->handle = servent;
 			servent->clientmapping[servent->clientmappingSize-1].transferdone = UA_TRUE;
 			UA_StatusCode retval = UA_Client_connect_Session(new_client, endpointUrl);
 			if(retval != UA_STATUSCODE_GOOD)
@@ -685,7 +707,7 @@ UA_Client * UA_Servent_TransferFunction (UA_Servent *servent, UA_ClientConfig cl
 			return new_client;
 			}
 		}
-
+	UA_Client_delete(new_client);
 	return NULL;
 	}
 
@@ -696,58 +718,27 @@ UA_StatusCode UA_Servent_disconnect(UA_Servent *servent, UA_Client *client)
 		{
 		if (servent->clientmapping[i].client == client)
 			{
-//			UA_Variant input;
-//			UA_ServentClientServerTransferDataType arg;
-//			struct sockaddr_in addr;
-//			socklen_t addrlen = sizeof(struct sockaddr_in);
-//			getsockname(client->connection.sockfd, (struct sockaddr*)&addr, &addrlen);
-//
-//			arg.url = UA_String_fromChars(inet_ntoa(addr.sin_addr));
-//			arg.clientPort = ntohs(addr.sin_port);
-//			arg.serverPort = 0;
-//
-//			UA_Variant_init(&input);
-//			UA_Variant_setScalarCopy(&input, &arg, &UA_TYPES[UA_TYPES_SERVENTCLIENTSERVERTRANSFERDATATYPE]);
-//			size_t outputSize;
-//			UA_Variant *output;
-//			UA_StatusCode retval = UA_Client_call(client, UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
-//							UA_NODEID_STRING(1, "ClientServerTransferMethod_delete"), 1, &input, &outputSize, &output);
-//			if(retval == UA_STATUSCODE_GOOD)
-//				{
-//				UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was successfull, and %lu returned values available.\n",
-//					   (unsigned long)outputSize);
-//				if (((UA_StatusCode*)output->data)[0] != UA_STATUSCODE_GOOD)
-//					{
-//					UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "Method call response was bad");
-//					}
-//				UA_Array_delete(output, outputSize, &UA_TYPES[UA_TYPES_VARIANT]);
-//				}
-//			else
-//				{
-//				UA_LOG_INFO(servent->server->config.logger, UA_LOGCATEGORY_SERVER, "Method call was unsuccessfull, and %x returned values available.\n", retval);
-//				}
-//			UA_Variant_deleteMembers(&input);
-
-
-
+			size_t mappingnumber = 0;
 			ServerNetworkLayerTCP *layer = servent->clientmapping[i].NetworklayerListener->handle;
 			for (size_t j = 0; j < layer->mappingsSize; j++)
 				{
-				if (layer->mappings[j].connection == &(client->connection))
+				if (layer->mappings[j].connection == client->connection)
 					{
-					//Service_CloseSecureChannel(servent->server, layer->mappings[j].connection->channel);
-					layer->mappings[j] = layer->mappings[layer->mappingsSize-1];
-					layer->mappingsSize--;
-					if (layer->mappingsSize == 0)
-						{
-						UA_free(layer->mappings);
-						layer->mappings = NULL;
-						}
+					mappingnumber = j;
+					break;
 					}
 				}
-
 			UA_Client_disconnect(client);
 			UA_Client_delete(client);
+
+			layer->mappings[mappingnumber] = layer->mappings[layer->mappingsSize-1];
+			layer->mappingsSize--;
+			if (layer->mappingsSize == 0)
+				{
+				UA_free(layer->mappings);
+				layer->mappings = NULL;
+				}
+
 			servent->clientmapping[i].transferdone = UA_FALSE;
 			servent->clientmapping[i].client = NULL;
 			servent->clientmapping[i].NetworklayerListener = NULL;
@@ -770,6 +761,8 @@ UA_StatusCode UA_Servent_disconnect(UA_Servent *servent, UA_Client *client)
 					}
 				servent->clientmapping = clientmapping_tmp;
 				}
+
+
 			servent->clientmappingSize--;
 			}
 		}
@@ -797,6 +790,9 @@ static void completeMessagesServent(UA_Servent *servent, UA_Job *job)
     	}
     if(realloced)
         job->type = UA_JOBTYPE_BINARYMESSAGE_ALLOCATED;
+    /* discard the job if message is empty - also no leak is possible here */
+	if(job->job.binaryMessage.message.length == 0)
+		job->type = UA_JOBTYPE_NOTHING;
 	}
 
 /* Get work from the networklayer */
