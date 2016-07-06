@@ -13,23 +13,22 @@
 # include "open62541.h"
 #endif
 
-#ifdef UA_ENABLE_SERVENT
-	#include "ua_servent.h"
-#endif
+#include "ua_servent.h"
+
 
 UA_Boolean running = true;
 static void stopHandler(int sig) {
     running = false;
 }
-int a0 = 0;
+int a0 = 1;
 int a1 = 0;
+int a2 = 0;
 int count = 0;
 
-int main(void) {
+	int main(void) {
     signal(SIGINT,  stopHandler);
     signal(SIGTERM, stopHandler);
 
-#ifdef UA_ENABLE_SERVENT
     UA_ServerConfig config = UA_ServerConfig_standard;
 	UA_ServerNetworkLayer nl = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 16664);
 	config.networkLayers = &nl;
@@ -46,10 +45,16 @@ int main(void) {
     	if (a0 == 1)
     		{
     		a0 = 0;
-    		client = UA_Servent_connect(servent, UA_ClientConfig_standard, "opc.tcp://127.0.0.1:16665", nl);
+    		client = UA_Servent_connect(servent, UA_ClientConfig_standard, "opc.tcp://127.0.0.1:16666", &nl);
     		}
     	if (a1 == 1)
+    		{
+    		retval = UA_Servent_disconnect(servent, client);
+    		a1 = 0;
+    		}
+    	if (a2 == 1)
 			{
+    		a2 = 0;
 			//variables to store data
 			UA_DateTime raw_date = 0;
 			UA_String string_date;
@@ -70,10 +75,10 @@ int main(void) {
 				printf("raw date is: %" PRId64 "\n", raw_date);
 				string_date = UA_DateTime_toString(raw_date);
 				printf("string date is: %.*s\n", (int)string_date.length, string_date.data);
+				UA_String_deleteMembers(&string_date);
 				}
 			UA_ReadRequest_deleteMembers(&rReq);
 			UA_ReadResponse_deleteMembers(&rResp);
-			UA_String_deleteMembers(&string_date);
 			}
     	};
 
@@ -81,5 +86,4 @@ int main(void) {
     nl.deleteMembers(&nl);
 
     return (int)retval;
-#endif
 }

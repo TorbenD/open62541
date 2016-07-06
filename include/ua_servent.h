@@ -59,5 +59,4 @@ UA_Client * UA_Servent_connect_username(UA_Servent *servent, UA_ClientConfig cli
 UA_Client * UA_Servent_connect(UA_Servent *servent, UA_ClientConfig clientconfig, const char *endpointUrl, UA_ServerNetworkLayer *NetworklayerListener);
 UA_StatusCode UA_Servent_disconnect(UA_Servent *servent, UA_Client *client);
 UA_StatusCode GetWorkFromNetworklayerServent (UA_Servent *servent, UA_UInt16 timeout);
-
 #endif /* INCLUDE_UA_SERVENT_H_ */

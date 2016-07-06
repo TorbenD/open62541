@@ -66,6 +66,7 @@
 #include "..//src//client//ua_client_internal.h"
 #include "..//src//server//ua_server_internal.h"
 #include "..//src_generated//ua_transport_generated_encoding_binary.h"
+#include <inttypes.h>
 #endif
 
 /****************************/
@@ -189,6 +190,7 @@ socket_recv_normal(UA_Connection *connection, UA_ByteString *response, UA_UInt32
     return UA_STATUSCODE_GOOD;
 }
 
+#ifdef UA_ENABLE_SERVENT
 static UA_StatusCode
 socket_recv_servent(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeout)
 	{
@@ -223,6 +225,7 @@ socket_recv_servent(UA_Connection *connection, UA_ByteString *response, UA_UInt3
 		}
 	return retval;
 	}
+#endif
 
 static UA_StatusCode
 socket_recv(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeout)
@@ -231,10 +234,12 @@ socket_recv(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeou
 		{
 		return socket_recv_normal(connection, response, timeout);
 		}
+#ifdef UA_ENABLE_SERVENT
 	else
 		{
 		return socket_recv_servent(connection, response, timeout);
 		}
+#endif
 	}
 
 static UA_StatusCode socket_set_nonblocking(SOCKET sockfd) {
@@ -290,6 +295,91 @@ static void FreeConnectionCallback(UA_Server *server, void *ptr) {
  */
 
 #define MAXBACKLOG 100
+
+#ifdef UA_ENABLE_SERVENT
+static void ClientServerTransferMethodDeleteCallback(UA_Server *server, void *data)
+	{
+	UA_Connection *data_tmp = (UA_Connection*)(data);
+	ServerNetworkLayerTCP *layer = server->config.networkLayers[0].handle;
+	UA_Servent *servent = layer->mappings[0].connection->handle;
+
+	UA_LOG_INFO(server->config.logger, UA_LOGCATEGORY_SERVER, "ClientServerTransferDelete was called");
+
+	for (size_t i = 0; i < servent->clientserverrelationSize; i++)
+		{
+		if (servent->clientserverrelation[i].socket == data_tmp->sockfd)
+			{
+			char char_tmp[1000] = "opc.tcp://";
+			strncat(char_tmp, (char*)servent->clientserverrelation[i].endpointUrl.data, servent->clientserverrelation[i].endpointUrl.length);
+			strcat(char_tmp, ":");
+			char *char_tmp2 = UA_malloc(100);
+			sprintf(char_tmp2, "%"PRIu16"", servent->clientserverrelation[i].serverport);
+			strcat(char_tmp, char_tmp2);
+			UA_String endpointUrl_tmp = UA_String_fromChars(char_tmp);
+			UA_free(char_tmp2);
+			char_tmp2 = NULL;
+			for (size_t j = 0; j < servent->clientmappingSize; j++)
+				{
+				if (UA_String_equal(&(servent->clientmapping[j].client->endpointUrl), &endpointUrl_tmp))
+					{
+					ClientMapping *clientmapping_tmp = NULL;
+					UA_Client_delete(servent->clientmapping[i].client);
+					if (servent->clientmappingSize == 1)
+						{
+						servent->clientmapping[i].client = NULL;
+						free(servent->clientmapping);
+						}
+					else
+						{
+						servent->clientmapping[j].client = servent->clientmapping[servent->clientmappingSize-1].client;
+						servent->clientmapping[j].NetworklayerListener = servent->clientmapping[servent->clientmappingSize-1].NetworklayerListener;
+						servent->clientmapping[j].transferdone = servent->clientmapping[servent->clientmappingSize-1].transferdone;
+
+						clientmapping_tmp = UA_realloc (servent->clientmapping, sizeof(ClientMapping) * (servent->clientmappingSize - 1));
+						if(!clientmapping_tmp)
+							{
+							UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientMapping");
+							return;
+							}
+						}
+					servent->clientmapping = clientmapping_tmp;
+					servent->clientmappingSize--;
+					}
+				}
+
+			servent->clientserverrelation[i].clientport = servent->clientserverrelation[servent->clientserverrelationSize-1].clientport;
+			servent->clientserverrelation[i].serverport = servent->clientserverrelation[servent->clientserverrelationSize-1].serverport;
+			UA_String_copy(&servent->clientserverrelation[servent->clientserverrelationSize-1].endpointUrl,&servent->clientserverrelation[i].endpointUrl);
+			servent->clientserverrelation[i].socket = servent->clientserverrelation[servent->clientserverrelationSize-1].socket;
+
+			ClientServerRelation *clientserverrelation_tmp = NULL;
+			if (servent->clientserverrelationSize == 1)
+				{
+				UA_free(servent->clientserverrelation);
+				servent->clientserverrelation = NULL;
+				}
+			else
+				{
+				clientserverrelation_tmp = UA_realloc (servent->clientserverrelation, sizeof(ClientServerRelation) * (servent->clientserverrelationSize - 1));
+				if(!clientserverrelation_tmp)
+					{
+					UA_LOG_ERROR(servent->server->config.logger, UA_LOGCATEGORY_NETWORK, "No memory for a new ClientServerRelation");
+					free(data);
+					return;
+					}
+				servent->clientserverrelation = clientserverrelation_tmp;
+				}
+			servent->clientserverrelationSize--;
+			}
+		else
+			{
+			free(data);
+			return;
+			}
+		}
+	return;
+	}
+#endif
 
 
 static UA_StatusCode
@@ -477,7 +567,7 @@ ServerNetworkLayerTCP_getJobs_normal(UA_ServerNetworkLayer *nl, UA_Job **jobs, U
     /* alloc enough space for a cleanup-connection and free-connection job per resulted socket */
     if(resultsize == 0)
         return 0;
-    UA_Job *js = malloc(sizeof(UA_Job) * (size_t)resultsize * 2);
+    UA_Job *js = malloc(sizeof(UA_Job) * (size_t)resultsize * 3);
     if(!js)
         return 0;
 
@@ -499,6 +589,15 @@ ServerNetworkLayerTCP_getJobs_normal(UA_ServerNetworkLayer *nl, UA_Job **jobs, U
             UA_Connection *c = layer->mappings[i].connection;
             UA_LOG_INFO(layer->logger, UA_LOGCATEGORY_NETWORK,
                         "Connection %i | Connection closed from remote", c->sockfd);
+#ifdef UA_ENABLE_SERVENT
+            if (c->handle)
+            	{
+            	js[j].type = UA_JOBTYPE_METHODCALL_DELAYED;
+            	js[j].job.methodCall.method = ClientServerTransferMethodDeleteCallback;
+            	js[j].job.methodCall.data = c;
+            	j++;
+            	}
+#endif
             /* the socket was closed from remote */
             js[j].type = UA_JOBTYPE_DETACHCONNECTION;
             js[j].job.closeConnection = layer->mappings[i].connection;
@@ -521,6 +620,7 @@ ServerNetworkLayerTCP_getJobs_normal(UA_ServerNetworkLayer *nl, UA_Job **jobs, U
     return j;
 }
 
+#ifdef UA_ENABLE_SERVENT
 static size_t
 ServerNetworkLayerTCP_getJobs_servent(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt16 timeout)
 	{
@@ -652,6 +752,7 @@ ServerNetworkLayerTCP_getJobs_servent(UA_ServerNetworkLayer *nl, UA_Job **jobs, 
 		}
 	return jobsSize;
 	}
+#endif
 
 static size_t
 ServerNetworkLayerTCP_getJobs(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt16 timeout)
@@ -661,6 +762,7 @@ ServerNetworkLayerTCP_getJobs(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt1
 		{
 		return ServerNetworkLayerTCP_getJobs_normal(nl, jobs, timeout);
 		}
+#ifdef UA_ENABLE_SERVENT
 	if (!layer->mappings[0].connection->handle)
 		{
 		return ServerNetworkLayerTCP_getJobs_normal(nl, jobs, timeout);
@@ -669,6 +771,7 @@ ServerNetworkLayerTCP_getJobs(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt1
 		{
 		return ServerNetworkLayerTCP_getJobs_servent(nl, jobs, timeout);
 		}
+#endif
 	}
 
 
@@ -684,6 +787,7 @@ ServerNetworkLayerTCP_stop(UA_ServerNetworkLayer *nl, UA_Job **jobs) {
         return 0;
     for(size_t i = 0; i < layer->mappingsSize; i++) {
         socket_close(layer->mappings[i].connection);
+        // TODO Client disconnect => Servent
         items[i*2].type = UA_JOBTYPE_DETACHCONNECTION;
         items[i*2].job.closeConnection = layer->mappings[i].connection;
         items[(i*2)+1].type = UA_JOBTYPE_METHODCALL_DELAYED;
