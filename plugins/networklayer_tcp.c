@@ -227,16 +227,13 @@ socket_recv_servent(UA_Connection *connection, UA_ByteString *response, UA_UInt3
 static UA_StatusCode
 socket_recv(UA_Connection *connection, UA_ByteString *response, UA_UInt32 timeout)
 	{
-	if (!connection->handle)
-		{
-		return socket_recv_normal(connection, response, timeout);
-		}
 #ifdef UA_ENABLE_SERVENT
-	else
+	if (connection->handle)
 		{
 		return socket_recv_servent(connection, response, timeout);
 		}
 #endif
+	return socket_recv_normal(connection, response, timeout);
 	}
 
 static UA_StatusCode socket_set_nonblocking(UA_Int32 sockfd) {
@@ -446,7 +443,6 @@ ServerNetworkLayerTCP_add(ServerNetworkLayerTCP *layer, UA_Int32 newsockfd) {
                 newsockfd, inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
     UA_Connection_init(c);
     c->sockfd = newsockfd;
-    c->handle = NULL;
     c->localConf = layer->conf;
     c->send = socket_write;
     c->recv = socket_recv;
@@ -761,6 +757,7 @@ ServerNetworkLayerTCP_getJobs(UA_ServerNetworkLayer *nl, UA_Job **jobs, UA_UInt1
 		return ServerNetworkLayerTCP_getJobs_servent(nl, jobs, timeout);
 		}
 #endif
+	return 0;
 	}
 
 

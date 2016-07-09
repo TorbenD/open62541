@@ -13,12 +13,11 @@
 
 int main(void) {
     UA_Client *client = UA_Client_new(UA_ClientConfig_standard);
-    UA_StatusCode retval = UA_Client_connect(client, "opc.tcp://localhost:16664");
+    UA_StatusCode retval = UA_Client_connect(client, "opc.tcp://127.0.0.1:16664");
     if(retval != UA_STATUSCODE_GOOD) {
         UA_Client_delete(client);
         return (int)retval;
     }
-
     //variables to store data
     UA_DateTime raw_date = 0;
     UA_String string_date;
@@ -46,5 +45,39 @@ int main(void) {
 
     UA_Client_disconnect(client);
     UA_Client_delete(client);
+
+    UA_Client *client2 = UA_Client_new(UA_ClientConfig_standard);
+    retval = UA_Client_connect(client2, "opc.tcp://127.0.0.1:16664");
+    if(retval != UA_STATUSCODE_GOOD) {
+        UA_Client_delete(client2);
+        return (int)retval;
+    }
+    //variables to store data
+    UA_DateTime raw_date2 = 0;
+    UA_String string_date2;
+
+    UA_ReadRequest rReq2;
+    UA_ReadRequest_init(&rReq2);
+    rReq2.nodesToRead = UA_Array_new(1, &UA_TYPES[UA_TYPES_READVALUEID]);
+    rReq2.nodesToReadSize = 1;
+    rReq2.nodesToRead[0].nodeId = UA_NODEID_NUMERIC(0, 2258);
+    rReq2.nodesToRead[0].attributeId = UA_ATTRIBUTEID_VALUE;
+
+    UA_ReadResponse rResp2 = UA_Client_Service_read(client2, rReq2);
+    if(rResp2.responseHeader.serviceResult == UA_STATUSCODE_GOOD && rResp2.resultsSize > 0 &&
+       rResp2.results[0].hasValue && UA_Variant_isScalar(&rResp2.results[0].value) &&
+       rResp2.results[0].value.type == &UA_TYPES[UA_TYPES_DATETIME]) {
+        raw_date2 = *(UA_DateTime*)rResp2.results[0].value.data;
+        printf("raw date is: %" PRId64 "\n", raw_date2);
+        string_date2 = UA_DateTime_toString(raw_date2);
+        printf("string date is: %.*s\n", (int)string_date2.length, string_date2.data);
+    }
+
+    UA_ReadRequest_deleteMembers(&rReq2);
+    UA_ReadResponse_deleteMembers(&rResp2);
+    UA_String_deleteMembers(&string_date2);
+
+    UA_Client_disconnect(client2);
+    UA_Client_delete(client2);
     return (int) UA_STATUSCODE_GOOD;
 }
