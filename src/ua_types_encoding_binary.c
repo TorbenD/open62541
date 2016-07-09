@@ -917,6 +917,7 @@ Variant_decodeBinary(bufpos pos, bufend end, UA_Variant *dst, const UA_DataType 
 
         /* search for the datatype. use extensionobject if nothing is found */
         dst->type = &UA_TYPES[UA_TYPES_EXTENSIONOBJECT];
+<<<<<<< HEAD
         if(typeId.namespaceIndex == 0 && typeId.identifierType == UA_NODEIDTYPE_NUMERIC &&
            eo_encoding == UA_EXTENSIONOBJECT_ENCODED_BYTESTRING) {
             UA_assert(typeId.identifier.byteString.data == NULL); /* for clang analyzer <= 3.7 */
@@ -929,6 +930,13 @@ Variant_decodeBinary(bufpos pos, bufend end, UA_Variant *dst, const UA_DataType 
             *pos = old_pos; /* jump back and decode as extensionobject */
             UA_NodeId_deleteMembers(&typeId);
         }
+=======
+        if(typeId.namespaceIndex != 0 || eo_encoding != UA_EXTENSIONOBJECT_ENCODED_BYTESTRING ||
+           findDataType(&typeId, &dst->type) != UA_STATUSCODE_GOOD)
+                *pos = old_pos; /* the datatype is unknown. roll back the
+                                   position and decode as an extensionobject */
+        UA_NodeId_deleteMembers(&typeId);
+>>>>>>> 09db90143cf489fecad65a4f6acac461171bda3d
 
         /* decode the type */
         dst->data = UA_calloc(1, dst->type->memSize);
