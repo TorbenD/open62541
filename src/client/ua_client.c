@@ -53,8 +53,10 @@ UA_Client * UA_Client_new(UA_ClientConfig config) {
 
 static void UA_Client_deleteMembers(UA_Client* client) {
     UA_Client_disconnect(client);
-    UA_Connection_deleteMembers(client->connection);
     UA_SecureChannel_deleteMembersCleanup(client->channel);
+    UA_free(client->channel);
+    UA_Connection_deleteMembers(client->connection);
+    UA_free(client->connection);
     if(client->endpointUrl.data)
         UA_String_deleteMembers(&client->endpointUrl);
     UA_UserTokenPolicy_deleteMembers(&client->token);
@@ -285,6 +287,14 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
     else
         UA_ByteString_deleteMembers(&reply);
 
+    /* Does the sequence number match? */
+    retval |= UA_SecureChannel_processSequenceNumber(seqHeader.sequenceNumber, client->channel);
+    if (retval != UA_STATUSCODE_GOOD){
+        UA_LOG_INFO_CHANNEL(client->config.logger, client->channel,
+                            "The sequence number was not increased by one. Got %i, expected %i",
+                            seqHeader.sequenceNumber, client->channel->receiveSequenceNumber + 1);
+    }
+
     if(retval != UA_STATUSCODE_GOOD) {
         UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL,
                      "Decoding OpenSecureChannelResponse failed");
@@ -511,7 +521,6 @@ static UA_StatusCode CloseSecureChannel(UA_Client *client) {
 
     UA_SecureConversationMessageHeader msgHeader;
     msgHeader.messageHeader.messageTypeAndChunkType = UA_RORTYPE_REQUEST + UA_MESSAGETYPE_CLO + UA_CHUNKTYPE_FINAL;
-
     msgHeader.secureChannelId = client->channel->securityToken.channelId;
 
     UA_SymmetricAlgorithmSecurityHeader symHeader;
