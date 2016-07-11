@@ -26,14 +26,20 @@ readDimension(UA_Byte *buf, size_t buflen, struct UA_NumericRangeDimension *dim)
     size_t progress = readNumber(buf, buflen, &dim->min);
     if(progress == 0)
         return 0;
-    if(buflen <= progress || buf[progress] != ':') {
+    if(buflen <= progress + 1 || buf[progress] != ':') {
         dim->max = dim->min;
         return progress;
     }
+
     progress++;
     size_t progress2 = readNumber(&buf[progress], buflen - progress, &dim->max);
     if(progress2 == 0)
         return 0;
+
+    /* invalid range */
+    if(dim->min >= dim->max)
+        return 0;
+    
     return progress + progress2;
 }
 
@@ -45,8 +51,8 @@ UA_StatusCode parse_numericrange(const UA_String *str, UA_NumericRange *range) {
     size_t dimensionsMax = 0;
     struct UA_NumericRangeDimension *dimensions = NULL;
     UA_StatusCode retval = UA_STATUSCODE_GOOD;
-    size_t pos = 0;
-    do {
+    size_t offset = 0;
+    while(true) {
         /* alloc dimensions */
         if(idx >= dimensionsMax) {
             struct UA_NumericRangeDimension *newds;
@@ -60,18 +66,24 @@ UA_StatusCode parse_numericrange(const UA_String *str, UA_NumericRange *range) {
         }
 
         /* read the dimension */
-        size_t progress = readDimension(&str->data[pos], str->length - pos, &dimensions[idx]);
+        size_t progress = readDimension(&str->data[offset], str->length - offset, &dimensions[idx]);
         if(progress == 0) {
             retval = UA_STATUSCODE_BADINDEXRANGEINVALID;
             break;
         }
-        pos += progress;
+        offset += progress;
         idx++;
 
         /* loop into the next dimension */
-        if(pos >= str->length)
+        if(offset >= str->length)
             break;
-    } while(str->data[pos] == ',' && pos++);
+
+        if(str->data[offset] != ',') {
+            retval = UA_STATUSCODE_BADINDEXRANGEINVALID;
+            break;
+        }
+        offset++;
+    }
 
     if(retval == UA_STATUSCODE_GOOD && idx > 0) {
         range->dimensions = dimensions;
@@ -359,7 +371,8 @@ void Service_Read(UA_Server *server, UA_Session *session,
         return;
     }
 
-    if(request->timestampsToReturn > 3){
+    /* check if the timestampstoreturn is valid */
+    if(request->timestampsToReturn > UA_TIMESTAMPSTORETURN_NEITHER) {
         response->responseHeader.serviceResult = UA_STATUSCODE_BADTIMESTAMPSTORETURNINVALID;
         return;
     }

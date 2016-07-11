@@ -92,8 +92,11 @@ if(CMAKE_COMPILER_IS_GNUCC OR "x${CMAKE_C_COMPILER_ID}" STREQUAL "xClang")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DARWIN_C_SOURCE=1")
   endif()
 elseif(MSVC)
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MTd")
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W3 /WX") # Compiler warnings, error on warning
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /D_CRT_SECURE_NO_WARNINGS") # don't give warnings for scanf and printf
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /D_WINSOCK_DEPRECATED_NO_WARNINGS") # inet_ntoa is deprecated but used for compatibility
+  set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT")
+  set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MTd")
 endif()
 
 ############
@@ -124,9 +127,6 @@ option(UA_ENABLE_GENERATE_NAMESPACE0 "Generate and load UA XML Namespace 0 defin
 
 option(UA_ENABLE_EMBEDDED_LIBC "Target has no libc, use internal definitions" OFF)
 mark_as_advanced(UA_ENABLE_EMBEDDED_LIBC)
-
-option(UA_ENABLE_EMBEDDED_CLOCK "Target has no standard time APIs (link custom implementation)" OFF)
-mark_as_advanced(UA_ENABLE_EMBEDDED_CLOCK)
 
 option(UA_ENABLE_EXTERNAL_NAMESPACES "Enable namespace handling by an external component (experimental)" OFF)
 mark_as_advanced(UA_ENABLE_EXTERNAL_NAMESPACES)
@@ -171,8 +171,8 @@ set(exported_headers ${PROJECT_BINARY_DIR}/src_generated/ua_config.h
                      ${PROJECT_SOURCE_DIR}/include/ua_server_external_ns.h
                      ${PROJECT_SOURCE_DIR}/include/ua_client.h
                      ${PROJECT_SOURCE_DIR}/include/ua_client_highlevel.h
-                     ${PROJECT_SOURCE_DIR}/plugins/networklayer_tcp.h
-                     ${PROJECT_SOURCE_DIR}/plugins/logger_stdout.h
+                     ${PROJECT_SOURCE_DIR}/plugins/ua_network_tcp.h
+                     ${PROJECT_SOURCE_DIR}/plugins/ua_log_stdout.h
                      ${PROJECT_SOURCE_DIR}/plugins/ua_config_standard.h)
 set(internal_headers ${PROJECT_SOURCE_DIR}/deps/queue.h
                      ${PROJECT_SOURCE_DIR}/deps/pcg_basic.h
@@ -224,8 +224,9 @@ set(lib_sources ${PROJECT_SOURCE_DIR}/src/ua_types.c
                 ${PROJECT_SOURCE_DIR}/src/server/ua_services_subscription.c
                 ${PROJECT_SOURCE_DIR}/src/client/ua_client_highlevel_subscriptions.c
                 # plugins and dependencies
-                ${PROJECT_SOURCE_DIR}/plugins/networklayer_tcp.c
-                ${PROJECT_SOURCE_DIR}/plugins/logger_stdout.c
+                ${PROJECT_SOURCE_DIR}/plugins/ua_clock.c
+                ${PROJECT_SOURCE_DIR}/plugins/ua_network_tcp.c
+                ${PROJECT_SOURCE_DIR}/plugins/ua_log_stdout.c
                 ${PROJECT_SOURCE_DIR}/plugins/ua_config_standard.c
                 ${PROJECT_SOURCE_DIR}/deps/libc_time.c
                 ${PROJECT_SOURCE_DIR}/deps/pcg_basic.c)
@@ -301,7 +302,6 @@ add_custom_command(OUTPUT ${PROJECT_BINARY_DIR}/src_generated/ua_namespaceinit_g
                                                 ${PROJECT_BINARY_DIR}/src_generated/ua_namespaceinit_generated
                    DEPENDS ${PROJECT_SOURCE_DIR}/tools/schema/namespace0/${GENERATE_NAMESPACE0_FILE}
                            ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/generate_open62541CCode.py
-                           ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/logger.py
                            ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/open62541_MacroHelper.py
                            ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/ua_builtin_types.py
                            ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/ua_constants.py
@@ -364,6 +364,7 @@ if(UA_BUILD_EXAMPLESERVER)
     add_executable(server examples/server.c)
     target_link_libraries(server ${open62541_LIBRARIES} open62541)
     target_link_libraries(server_static ${open62541_LIBRARIES})
+	target_compile_definitions(server_static PRIVATE -DUA_DYNAMIC_LINKING)
     if(WIN32)
         target_link_libraries(server_static ws2_32)
         target_link_libraries(server ws2_32)
@@ -402,11 +403,11 @@ if(UA_BUILD_SELFSIGNED_CERTIFICATE)
 endif()
 
 if(UA_BUILD_EXAMPLECLIENT)
-    add_definitions(-DBENCHMARK)
     set(client_source $<TARGET_OBJECTS:open62541-object>)
     add_executable(client_static examples/client.c ${client_source})
     add_executable(client examples/client.c)
     target_link_libraries(client_static ${open62541_LIBRARIES})
+	target_compile_definitions(client_static PRIVATE -DUA_DYNAMIC_LINKING)
     target_link_libraries(client open62541 ${open62541_LIBRARIES})
     if(WIN32)
         target_link_libraries(client_static ws2_32)
@@ -474,7 +475,6 @@ if(UA_BUILD_EXAMPLES)
                                                     ${PROJECT_SOURCE_DIR}/examples/server_nodeset.xml
                                                     ${PROJECT_BINARY_DIR}/src_generated/nodeset
                       DEPENDS ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/generate_open62541CCode.py
-                              ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/logger.py
                               ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/open62541_MacroHelper.py
                               ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/ua_builtin_types.py
                               ${PROJECT_SOURCE_DIR}/tools/pyUANamespace/ua_constants.py

@@ -20,10 +20,10 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
-#include <stdbool.h>
 #include "ua_config.h"
 #include "ua_constants.h"
+#include <stdint.h>
+#include <stdbool.h>
 
 /**
  * Data Types
@@ -274,6 +274,8 @@ typedef struct {
 
 UA_Boolean UA_EXPORT UA_Guid_equal(const UA_Guid *g1, const UA_Guid *g2);
 
+UA_EXPORT extern const UA_Guid UA_GUID_NULL;
+
 /**
  * ByteString
  * ^^^^^^^^^^
@@ -504,6 +506,8 @@ typedef struct {
 } UA_ExtensionObject;
 
 /**
+ * .. _variant:
+ *
  * Variant
  * ^^^^^^^
  * Variants may contain data of any type. See the Section `Generic Type
