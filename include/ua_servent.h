@@ -12,6 +12,7 @@
 #include "ua_job.h"
 #include "ua_client.h"
 #include "ua_server.h"
+#include "..//plugins//ua_network_tcp.h"
 
 struct UA_Client;
 typedef struct UA_Client UA_Client;

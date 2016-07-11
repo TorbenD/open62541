@@ -242,7 +242,6 @@ UA_SecureChannel_sendBinaryMessage(UA_SecureChannel *channel, UA_UInt32 requestI
 		break;
     	}
     ci.messageType += UA_MESSAGETYPE_MSG;
-    ci.abort = false;
     if(typeId.identifier.numeric == 446 || typeId.identifier.numeric == 449)
         ci.messageType += UA_MESSAGETYPE_OPN;
     else if(typeId.identifier.numeric == 452 || typeId.identifier.numeric == 455)
@@ -347,7 +346,7 @@ void UA_SecureChannel_removeChunk(UA_SecureChannel *channel, UA_UInt32 requestId
     }
 }
 
-UA_StatusCode UA_SecureChannel_checkSequenceNumber (UA_UInt32 SequenceNumber, UA_SecureChannel *channel){
+UA_StatusCode UA_SecureChannel_processSequenceNumber (UA_UInt32 SequenceNumber, UA_SecureChannel *channel){
 /* Does the sequence number match? */
     if(SequenceNumber != channel->receiveSequenceNumber + 1) {
         if(channel->receiveSequenceNumber + 1 > 4294966271 && SequenceNumber < 1024) {

@@ -915,11 +915,6 @@ Variant_decodeBinary(UA_Variant *dst, const UA_DataType *_) {
             pos = old_pos; /* jump back and decode as extensionobject */
             UA_NodeId_deleteMembers(&typeId);
         }
-        if(typeId.namespaceIndex != 0 || eo_encoding != UA_EXTENSIONOBJECT_ENCODED_BYTESTRING ||
-           findDataType(&typeId, &dst->type) != UA_STATUSCODE_GOOD)
-                *pos = old_pos; /* the datatype is unknown. roll back the
-                                   position and decode as an extensionobject */
-        UA_NodeId_deleteMembers(&typeId);
         /* decode the type */
         dst->data = UA_calloc(1, dst->type->memSize);
         if(dst->data) {

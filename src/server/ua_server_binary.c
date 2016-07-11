@@ -510,12 +510,13 @@ processRequest(UA_SecureChannel *channel, UA_Server *server, UA_UInt32 requestId
     /* Clean up */
     UA_deleteMembers(request, requestType);
     UA_deleteMembers(response, responseType);
+    }
 }
 
 /* MSG -> Normal request */
 static void
 processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHeader *messageHeader,
-           const UA_ByteString *msg, size_t *offset) {
+        const UA_ByteString *msg, size_t *offset) {
     /* Decode the header */
     UA_UInt32 channelId = 0;
     UA_UInt32 tokenId = 0;
@@ -546,7 +547,7 @@ processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHead
     }
 
     /* Does the sequence number match? */
-    retval = UA_SecureChannel_checkSequenceNumber(sequenceHeader.sequenceNumber, channel);
+    retval = UA_SecureChannel_processSequenceNumber(sequenceHeader.sequenceNumber, channel);
     if (retval != UA_STATUSCODE_GOOD){
         UA_LOG_INFO_CHANNEL(server->config.logger, channel,
                             "The sequence number was not increased by one. Got %i, expected %i",
