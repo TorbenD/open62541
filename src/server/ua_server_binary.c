@@ -510,12 +510,13 @@ processRequest(UA_SecureChannel *channel, UA_Server *server, UA_UInt32 requestId
     /* Clean up */
     UA_deleteMembers(request, requestType);
     UA_deleteMembers(response, responseType);
+    }
 }
 
 /* MSG -> Normal request */
 static void
 processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHeader *messageHeader,
-           const UA_ByteString *msg, size_t *offset) {
+        const UA_ByteString *msg, size_t *offset) {
     /* Decode the header */
     UA_UInt32 channelId = 0;
     UA_UInt32 tokenId = 0;
@@ -546,27 +547,13 @@ processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHead
     }
 
     /* Does the sequence number match? */
-<<<<<<< 80d4254fe8bdb5c1cc477d490d190dd05af7a3b8
-    if(sequenceHeader.sequenceNumber != channel->receiveSequenceNumber + 1) {
-        if(channel->receiveSequenceNumber + 1 > 4294966271 && sequenceHeader.sequenceNumber < 1024) {
-            channel->receiveSequenceNumber = sequenceHeader.sequenceNumber - 1; /* Roll over */
-        } else {
-            UA_LOG_INFO_CHANNEL(server->config.logger, channel,
-                                "The sequence number was not increased by one. Got %i, expected %i",
-                                sequenceHeader.sequenceNumber, channel->receiveSequenceNumber + 1);
-            sendError(channel, msg, *offset, &UA_TYPES[UA_TYPES_SERVICEFAULT],
-                      sequenceHeader.requestId, UA_STATUSCODE_BADSECURITYCHECKSFAILED);
-            return;
-        }
-=======
-    retval = UA_SecureChannel_checkSequenceNumber(sequenceHeader.sequenceNumber, channel);
+    retval = UA_SecureChannel_processSequenceNumber(sequenceHeader.sequenceNumber, channel);
     if (retval != UA_STATUSCODE_GOOD){
         UA_LOG_INFO_CHANNEL(server->config.logger, channel,
                             "The sequence number was not increased by one. Got %i, expected %i",
                             sequenceHeader.sequenceNumber, channel->receiveSequenceNumber + 1);
         sendError(channel, msg, *offset, &UA_TYPES[UA_TYPES_SERVICEFAULT],
                   sequenceHeader.requestId, UA_STATUSCODE_BADSECURITYCHECKSFAILED);
->>>>>>> Saving before sync
     }
 
     /* Does the token match? */

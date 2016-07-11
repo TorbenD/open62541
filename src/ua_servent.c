@@ -13,13 +13,13 @@
 #include "..//src_generated//ua_transport_generated_encoding_binary.h"
 #include "..//src//server//ua_server_internal.h"
 #include "..//src//client//ua_client_internal.h"
-#include "..//plugins//networklayer_tcp.h"
+#include "..//plugins//ua_network_tcp.h"
 #include "..//src//server//ua_services.h"
 #include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "ua_log.h"
-#include "..//plugins//logger_stdout.h"
+#include "..//plugins//ua_log_stdout.h"
 #include "ua_client_highlevel.h"
 #include "stdio.h"
 #include <inttypes.h>

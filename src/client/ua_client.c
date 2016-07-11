@@ -297,7 +297,7 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
     retval = response.responseHeader.serviceResult;
     if(retval == UA_STATUSCODE_GOOD) {
         /* Does the sequence number match? */
-       retval = UA_SecureChannel_checkSequenceNumber(seqHeader.sequenceNumber, client->channel);
+       retval = UA_SecureChannel_processSequenceNumber(seqHeader.sequenceNumber, client->channel);
        if (retval != UA_STATUSCODE_GOOD){
            UA_LOG_INFO_CHANNEL(client->config.logger, client->channel,
                                "The sequence number was not increased by one. Got %i, expected %i",
@@ -689,11 +689,11 @@ UA_StatusCode UA_Client_disconnect(UA_Client *client) {
         return UA_STATUSCODE_BADNOTCONNECTED;
     UA_StatusCode retval = UA_STATUSCODE_GOOD;
     /* Is a session established? */
-    if(client->channel->connection->state == UA_CONNECTION_ESTABLISHED &&
+    if(client->connection->state == UA_CONNECTION_ESTABLISHED &&
        !UA_NodeId_equal(&client->authenticationToken, &UA_NODEID_NULL))
         retval = CloseSession(client);
     /* Is a secure channel established? */
-    if(client->channel->connection->state == UA_CONNECTION_ESTABLISHED)
+    if(client->connection->state == UA_CONNECTION_ESTABLISHED)
         retval |= CloseSecureChannel(client);
     return retval;
 }
@@ -775,7 +775,7 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
         goto finish;
 
     /* Does the sequence number match? */
-    retval = UA_SecureChannel_checkSequenceNumber(seqHeader.sequenceNumber, client->channel);
+    retval = UA_SecureChannel_processSequenceNumber(seqHeader.sequenceNumber, client->channel);
     if (retval != UA_STATUSCODE_GOOD){
         UA_LOG_INFO_CHANNEL(client->config.logger, client->channel,
                             "The sequence number was not increased by one. Got %i, expected %i",

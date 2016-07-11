@@ -915,7 +915,6 @@ Variant_decodeBinary(UA_Variant *dst, const UA_DataType *_) {
             pos = old_pos; /* jump back and decode as extensionobject */
             UA_NodeId_deleteMembers(&typeId);
         }
-
         /* decode the type */
         dst->data = UA_calloc(1, dst->type->memSize);
         if(dst->data) {
