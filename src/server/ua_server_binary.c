@@ -546,6 +546,7 @@ processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHead
     }
 
     /* Does the sequence number match? */
+<<<<<<< 80d4254fe8bdb5c1cc477d490d190dd05af7a3b8
     if(sequenceHeader.sequenceNumber != channel->receiveSequenceNumber + 1) {
         if(channel->receiveSequenceNumber + 1 > 4294966271 && sequenceHeader.sequenceNumber < 1024) {
             channel->receiveSequenceNumber = sequenceHeader.sequenceNumber - 1; /* Roll over */
@@ -557,8 +558,16 @@ processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHead
                       sequenceHeader.requestId, UA_STATUSCODE_BADSECURITYCHECKSFAILED);
             return;
         }
+=======
+    retval = UA_SecureChannel_checkSequenceNumber(sequenceHeader.sequenceNumber, channel);
+    if (retval != UA_STATUSCODE_GOOD){
+        UA_LOG_INFO_CHANNEL(server->config.logger, channel,
+                            "The sequence number was not increased by one. Got %i, expected %i",
+                            sequenceHeader.sequenceNumber, channel->receiveSequenceNumber + 1);
+        sendError(channel, msg, *offset, &UA_TYPES[UA_TYPES_SERVICEFAULT],
+                  sequenceHeader.requestId, UA_STATUSCODE_BADSECURITYCHECKSFAILED);
+>>>>>>> Saving before sync
     }
-    channel->receiveSequenceNumber++;
 
     /* Does the token match? */
     if(tokenId != channel->securityToken.tokenId) {
