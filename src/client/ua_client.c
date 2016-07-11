@@ -510,11 +510,8 @@ static UA_StatusCode CloseSecureChannel(UA_Client *client) {
     request.requestHeader.authenticationToken = client->authenticationToken;
 
     UA_SecureConversationMessageHeader msgHeader;
-<<<<<<< 80d4254fe8bdb5c1cc477d490d190dd05af7a3b8
     msgHeader.messageHeader.messageTypeAndChunkType = UA_RORTYPE_REQUEST + UA_MESSAGETYPE_CLO + UA_CHUNKTYPE_FINAL;
-=======
-    msgHeader.messageHeader.messageTypeAndChunkType = UA_MESSAGETYPE_CLO + UA_CHUNKTYPE_FINAL;
->>>>>>> Saving before sync
+
     msgHeader.secureChannelId = client->channel->securityToken.channelId;
 
     UA_SymmetricAlgorithmSecurityHeader symHeader;
@@ -758,7 +755,6 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
             return;
         }
     } while(!reply.data);
-
     size_t offset = 0;
     UA_SecureConversationMessageHeader msgHeader;
     retval |= UA_SecureConversationMessageHeader_decodeBinary(&reply, &offset, &msgHeader);

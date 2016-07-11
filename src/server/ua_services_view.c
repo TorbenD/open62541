@@ -465,6 +465,8 @@ walkBrowsePath(UA_Server *server, UA_Session *session, const UA_Node *node, cons
         reftypes = (UA_NodeId*)(uintptr_t)&elem->referenceTypeId; // ptr magic due to const cast
     } else {
         retval = findSubTypes(server->nodestore, &elem->referenceTypeId, &reftypes, &reftypes_count);
+        retval = getTypeHierarchy(server->nodestore, &elem->referenceTypeId, &reftypes, &reftypes_count);
+        retval = findSubTypes(server->nodestore, &elem->referenceTypeId, &reftypes, &reftypes_count);
         if(retval != UA_STATUSCODE_GOOD)
             return retval;
     }

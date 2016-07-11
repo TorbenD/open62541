@@ -229,6 +229,7 @@ UA_SecureChannel_sendBinaryMessage(UA_SecureChannel *channel, UA_UInt32 requestI
     ci.final = false;
     ci.messageType = UA_MESSAGETYPE_MSG;
     ci.errorCode = UA_STATUSCODE_GOOD;
+
     switch (MessageType)
     	{
     	case UA_RORTYPE_REQUEST:
