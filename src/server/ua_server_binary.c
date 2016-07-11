@@ -17,10 +17,10 @@ static void init_response_header(const UA_RequestHeader *p, UA_ResponseHeader *r
 }
 
 static void
-sendError(UA_SecureChannel *channel, const UA_ByteString *msg, size_t pos, const UA_DataType *responseType,
+sendError(UA_SecureChannel *channel, const UA_ByteString *msg, size_t offset, const UA_DataType *responseType,
           UA_UInt32 requestId, UA_StatusCode error) {
     UA_RequestHeader requestHeader;
-    UA_StatusCode retval = UA_RequestHeader_decodeBinary(msg, &pos, &requestHeader);
+    UA_StatusCode retval = UA_RequestHeader_decodeBinary(msg, &offset, &requestHeader);
     if(retval != UA_STATUSCODE_GOOD)
         return;
     void *response = UA_alloca(responseType->memSize);
@@ -216,9 +216,9 @@ getServicePointers(UA_UInt32 requestTypeId, const UA_DataType **requestType,
 /*************************/
 
 /* HEL -> Open up the connection */
-static void processHEL(UA_Connection *connection, const UA_ByteString *msg, size_t *pos) {
+static void processHEL(UA_Connection *connection, const UA_ByteString *msg, size_t *offset) {
     UA_TcpHelloMessage helloMessage;
-    if(UA_TcpHelloMessage_decodeBinary(msg, pos, &helloMessage) != UA_STATUSCODE_GOOD) {
+    if(UA_TcpHelloMessage_decodeBinary(msg, offset, &helloMessage) != UA_STATUSCODE_GOOD) {
         connection->close(connection);
         return;
     }
@@ -260,14 +260,14 @@ static void processHEL(UA_Connection *connection, const UA_ByteString *msg, size
 }
 
 /* OPN -> Open up/renew the securechannel */
-static void processOPN(UA_Connection *connection, UA_Server *server, const UA_ByteString *msg, size_t *pos) {
+static void processOPN(UA_Connection *connection, UA_Server *server, const UA_ByteString *msg, size_t *offset) {
     if(connection->state != UA_CONNECTION_ESTABLISHED) {
         connection->close(connection);
         return;
     }
 
     UA_UInt32 channelId;
-    UA_StatusCode retval = UA_UInt32_decodeBinary(msg, pos, &channelId);
+    UA_StatusCode retval = UA_UInt32_decodeBinary(msg, offset, &channelId);
 
     /* Opening up a channel with a channelid already set */
     if(!connection->channel && channelId != 0)
@@ -277,16 +277,16 @@ static void processOPN(UA_Connection *connection, UA_Server *server, const UA_By
         retval |= UA_STATUSCODE_BADREQUESTTYPEINVALID;
 
     UA_AsymmetricAlgorithmSecurityHeader asymHeader;
-    retval |= UA_AsymmetricAlgorithmSecurityHeader_decodeBinary(msg, pos, &asymHeader);
+    retval |= UA_AsymmetricAlgorithmSecurityHeader_decodeBinary(msg, offset, &asymHeader);
 
     UA_SequenceHeader seqHeader;
-    retval |= UA_SequenceHeader_decodeBinary(msg, pos, &seqHeader);
+    retval |= UA_SequenceHeader_decodeBinary(msg, offset, &seqHeader);
 
     UA_NodeId requestType;
-    retval |= UA_NodeId_decodeBinary(msg, pos, &requestType);
+    retval |= UA_NodeId_decodeBinary(msg, offset, &requestType);
 
     UA_OpenSecureChannelRequest r;
-    retval |= UA_OpenSecureChannelRequest_decodeBinary(msg, pos, &r);
+    retval |= UA_OpenSecureChannelRequest_decodeBinary(msg, offset, &r);
 
     if(retval != UA_STATUSCODE_GOOD || requestType.identifier.numeric != 446) {
         UA_AsymmetricAlgorithmSecurityHeader_deleteMembers(&asymHeader);
@@ -511,14 +511,14 @@ processRequest(UA_SecureChannel *channel, UA_Server *server, UA_UInt32 requestId
 /* MSG -> Normal request */
 static void
 processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHeader *messageHeader,
-           const UA_ByteString *msg, size_t *pos) {
+           const UA_ByteString *msg, size_t *offset) {
     /* Decode the header */
     UA_UInt32 channelId = 0;
     UA_UInt32 tokenId = 0;
     UA_SequenceHeader sequenceHeader;
-    UA_StatusCode retval = UA_UInt32_decodeBinary(msg, pos, &channelId);
-    retval |= UA_UInt32_decodeBinary(msg, pos, &tokenId);
-    retval |= UA_SequenceHeader_decodeBinary(msg, pos, &sequenceHeader);
+    UA_StatusCode retval = UA_UInt32_decodeBinary(msg, offset, &channelId);
+    retval |= UA_UInt32_decodeBinary(msg, offset, &tokenId);
+    retval |= UA_SequenceHeader_decodeBinary(msg, offset, &sequenceHeader);
     if(retval != UA_STATUSCODE_GOOD)
         return;
 
@@ -542,19 +542,14 @@ processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHead
     }
 
     /* Does the sequence number match? */
-    if(sequenceHeader.sequenceNumber != channel->receiveSequenceNumber + 1) {
-        if(channel->receiveSequenceNumber + 1 > 4294966271 && sequenceHeader.sequenceNumber < 1024) {
-            channel->receiveSequenceNumber = sequenceHeader.sequenceNumber - 1; /* Roll over */
-        } else {
-            UA_LOG_INFO_CHANNEL(server->config.logger, channel,
-                                "The sequence number was not increased by one. Got %i, expected %i",
-                                sequenceHeader.sequenceNumber, channel->receiveSequenceNumber + 1);
-            sendError(channel, msg, *pos, &UA_TYPES[UA_TYPES_SERVICEFAULT],
-                      sequenceHeader.requestId, UA_STATUSCODE_BADSECURITYCHECKSFAILED);
-            return;
-        }
+    retval = UA_SecureChannel_checkSequenceNumber(sequenceHeader.sequenceNumber, channel);
+    if (retval != UA_STATUSCODE_GOOD){
+        UA_LOG_INFO_CHANNEL(server->config.logger, channel,
+                            "The sequence number was not increased by one. Got %i, expected %i",
+                            sequenceHeader.sequenceNumber, channel->receiveSequenceNumber + 1);
+        sendError(channel, msg, *offset, &UA_TYPES[UA_TYPES_SERVICEFAULT],
+                  sequenceHeader.requestId, UA_STATUSCODE_BADSECURITYCHECKSFAILED);
     }
-    channel->receiveSequenceNumber++;
 
     /* Does the token match? */
     if(tokenId != channel->securityToken.tokenId) {
@@ -571,8 +566,8 @@ processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHead
     /* Process chunk to get complete request */
     UA_Boolean deleteRequest = false;
     UA_ByteString request = processChunk(channel, server, messageHeader, sequenceHeader.requestId,
-                                         msg, *pos, messageHeader->messageSize - 24, &deleteRequest);
-    *pos += (messageHeader->messageSize - 24);
+                                         msg, *offset, messageHeader->messageSize - 24, &deleteRequest);
+    *offset += (messageHeader->messageSize - 24);
     if(request.length > 0) {
         /* Process the request */
         processRequest(channel, server, sequenceHeader.requestId, &request);
@@ -587,13 +582,13 @@ processMSG(UA_Connection *connection, UA_Server *server, const UA_TcpMessageHead
 
 /* CLO -> Close the secure channel */
 static void
-processCLO(UA_Connection *connection, UA_Server *server, const UA_ByteString *msg, size_t *pos) {
+processCLO(UA_Connection *connection, UA_Server *server, const UA_ByteString *msg, size_t *offset) {
     UA_UInt32 channelId;
     UA_UInt32 tokenId = 0;
     UA_SequenceHeader sequenceHeader;
-    UA_StatusCode retval = UA_UInt32_decodeBinary(msg, pos, &channelId);
-    retval |= UA_UInt32_decodeBinary(msg, pos, &tokenId);
-    retval |= UA_SequenceHeader_decodeBinary(msg, pos, &sequenceHeader);
+    UA_StatusCode retval = UA_UInt32_decodeBinary(msg, offset, &channelId);
+    retval |= UA_UInt32_decodeBinary(msg, offset, &tokenId);
+    retval |= UA_SequenceHeader_decodeBinary(msg, offset, &sequenceHeader);
     if(retval != UA_STATUSCODE_GOOD)
         return;
 

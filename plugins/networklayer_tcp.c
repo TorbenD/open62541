@@ -290,9 +290,6 @@ ServerNetworkLayerTCP_closeConnection(UA_Connection *connection) {
     connection->state = UA_CONNECTION_CLOSED;
 #endif
     //cppcheck-suppress unreadVariable
-    ServerNetworkLayerTCP *layer = connection->handle;
-    UA_LOG_INFO(layer->logger, UA_LOGCATEGORY_NETWORK, "Connection %i | Force closing the connection",
-                connection->sockfd);
     /* only "shutdown" here. this triggers the select, where the socket is
        "closed" in the mainloop */
     shutdown(connection->sockfd, 2);
@@ -312,7 +309,6 @@ ServerNetworkLayerTCP_add(ServerNetworkLayerTCP *layer, UA_Int32 newsockfd) {
                 newsockfd, inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
     UA_Connection_init(c);
     c->sockfd = newsockfd;
-    c->handle = layer;
     c->localConf = layer->conf;
     c->send = socket_write;
     c->close = ServerNetworkLayerTCP_closeConnection;

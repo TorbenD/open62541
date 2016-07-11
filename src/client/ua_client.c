@@ -16,9 +16,11 @@
 
 static void UA_Client_init(UA_Client* client, UA_ClientConfig config) {
     client->state = UA_CLIENTSTATE_READY;
-    UA_Connection_init(&client->connection);
-    UA_SecureChannel_init(&client->channel);
-    client->channel.connection = &client->connection;
+    client->connection = UA_malloc(sizeof(UA_Connection));
+    UA_Connection_init(client->connection);
+    client->channel = UA_malloc(sizeof(UA_SecureChannel));
+    UA_SecureChannel_init(client->channel);
+    client->channel->connection = client->connection;
     UA_String_init(&client->endpointUrl);
     client->requestId = 0;
 
@@ -50,8 +52,8 @@ UA_Client * UA_Client_new(UA_ClientConfig config) {
 
 static void UA_Client_deleteMembers(UA_Client* client) {
     UA_Client_disconnect(client);
-    UA_Connection_deleteMembers(&client->connection);
-    UA_SecureChannel_deleteMembersCleanup(&client->channel);
+    UA_Connection_deleteMembers(client->connection);
+    UA_SecureChannel_deleteMembersCleanup(client->channel);
     if(client->endpointUrl.data)
         UA_String_deleteMembers(&client->endpointUrl);
     UA_UserTokenPolicy_deleteMembers(&client->token);
@@ -106,7 +108,7 @@ static UA_StatusCode HelAckHandshake(UA_Client *client) {
     UA_TcpHelloMessage hello;
     UA_String_copy(&client->endpointUrl, &hello.endpointUrl); /* must be less than 4096 bytes */
 
-    UA_Connection *conn = &client->connection;
+    UA_Connection *conn = client->connection;
     hello.maxChunkCount = conn->localConf.maxChunkCount;
     hello.maxMessageSize = conn->localConf.maxMessageSize;
     hello.protocolVersion = conn->localConf.protocolVersion;
@@ -115,7 +117,7 @@ static UA_StatusCode HelAckHandshake(UA_Client *client) {
 
     UA_ByteString message;
     UA_StatusCode retval;
-    retval = client->connection.getSendBuffer(&client->connection, client->connection.remoteConf.recvBufferSize, &message);
+    retval = client->connection->getSendBuffer(client->connection, client->connection->remoteConf.recvBufferSize, &message);
     if(retval != UA_STATUSCODE_GOOD)
         return retval;
 
@@ -126,12 +128,12 @@ static UA_StatusCode HelAckHandshake(UA_Client *client) {
     retval |= UA_TcpMessageHeader_encodeBinary(&messageHeader, &message, &offset);
     UA_TcpHelloMessage_deleteMembers(&hello);
     if(retval != UA_STATUSCODE_GOOD) {
-        client->connection.releaseSendBuffer(&client->connection, &message);
+        client->connection->releaseSendBuffer(client->connection, &message);
         return retval;
     }
 
     message.length = messageHeader.messageSize;
-    retval = client->connection.send(&client->connection, &message);
+    retval = client->connection->send(client->connection, &message);
     if(retval != UA_STATUSCODE_GOOD) {
         UA_LOG_INFO(client->config.logger, UA_LOGCATEGORY_NETWORK, "Sending HEL failed");
         return retval;
@@ -142,8 +144,8 @@ static UA_StatusCode HelAckHandshake(UA_Client *client) {
     UA_ByteString_init(&reply);
     UA_Boolean realloced = false;
     do {
-        retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
-        retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
+        retval = client->connection->recv(client->connection, &reply, client->config.timeout);
+        retval |= UA_Connection_completeMessages(client->connection, &reply, &realloced);
         if(retval != UA_STATUSCODE_GOOD) {
             UA_LOG_INFO(client->config.logger, UA_LOGCATEGORY_NETWORK, "Receiving ACK message failed");
             return retval;
@@ -155,7 +157,7 @@ static UA_StatusCode HelAckHandshake(UA_Client *client) {
     UA_TcpAcknowledgeMessage ackMessage;
     retval = UA_TcpAcknowledgeMessage_decodeBinary(&reply, &offset, &ackMessage);
     if(!realloced)
-        client->connection.releaseRecvBuffer(&client->connection, &reply);
+        client->connection->releaseRecvBuffer(client->connection, &reply);
     else
         UA_ByteString_deleteMembers(&reply);
 
@@ -184,19 +186,19 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
     if(renew && client->scRenewAt - UA_DateTime_now() > 0)
         return UA_STATUSCODE_GOOD;
 
-    UA_Connection *c = &client->connection;
+    UA_Connection *c = client->connection;
     if(c->state != UA_CONNECTION_ESTABLISHED)
         return UA_STATUSCODE_BADSERVERNOTCONNECTED;
 
     UA_SecureConversationMessageHeader messageHeader;
     messageHeader.messageHeader.messageTypeAndChunkType = UA_MESSAGETYPE_OPN + UA_CHUNKTYPE_FINAL;
     if(renew)
-        messageHeader.secureChannelId = client->channel.securityToken.channelId;
+        messageHeader.secureChannelId = client->channel->securityToken.channelId;
     else
         messageHeader.secureChannelId = 0;
 
     UA_SequenceHeader seqHeader;
-    seqHeader.sequenceNumber = ++client->channel.sendSequenceNumber;
+    seqHeader.sequenceNumber = ++client->channel->sendSequenceNumber;
     seqHeader.requestId = ++client->requestId;
 
     UA_AsymmetricAlgorithmSecurityHeader asymHeader;
@@ -219,7 +221,7 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
         UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL, "Requesting to open a SecureChannel");
     }
 
-    UA_ByteString_copy(&client->channel.clientNonce, &opnSecRq.clientNonce);
+    UA_ByteString_copy(&client->channel->clientNonce, &opnSecRq.clientNonce);
     opnSecRq.securityMode = UA_MESSAGESECURITYMODE_NONE;
 
     UA_ByteString message;
@@ -242,12 +244,12 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
     UA_AsymmetricAlgorithmSecurityHeader_deleteMembers(&asymHeader);
     UA_OpenSecureChannelRequest_deleteMembers(&opnSecRq);
     if(retval != UA_STATUSCODE_GOOD) {
-        client->connection.releaseSendBuffer(&client->connection, &message);
+        client->connection->releaseSendBuffer(client->connection, &message);
         return retval;
     }
 
     message.length = messageHeader.messageHeader.messageSize;
-    retval = client->connection.send(&client->connection, &message);
+    retval = client->connection->send(client->connection, &message);
     if(retval != UA_STATUSCODE_GOOD)
         return retval;
 
@@ -299,6 +301,14 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
 
     retval = response.responseHeader.serviceResult;
     if(retval == UA_STATUSCODE_GOOD) {
+        /* Does the sequence number match? */
+       retval = UA_SecureChannel_checkSequenceNumber(seqHeader.sequenceNumber, client->channel);
+       if (retval != UA_STATUSCODE_GOOD){
+           UA_LOG_INFO_CHANNEL(client->config.logger, client->channel,
+                               "The sequence number was not increased by one. Got %i, expected %i",
+                               seqHeader.sequenceNumber, client->channel->receiveSequenceNumber + 1);
+           return UA_STATUSCODE_BADINTERNALERROR;
+           }
         /* Response.securityToken.revisedLifetime is UInt32 we need to cast it
            to DateTime=Int64 we take 75% of lifetime to start renewing as
            described in standard */
@@ -306,10 +316,10 @@ static UA_StatusCode SecureChannelHandshake(UA_Client *client, UA_Boolean renew)
             (UA_DateTime)(response.securityToken.revisedLifetime * (UA_Double)UA_MSEC_TO_DATETIME * 0.75);
 
         /* Replace the old nonce */
-        UA_ChannelSecurityToken_deleteMembers(&client->channel.securityToken);
-        UA_ChannelSecurityToken_copy(&response.securityToken, &client->channel.securityToken);
-        UA_ByteString_deleteMembers(&client->channel.serverNonce);
-        UA_ByteString_copy(&response.serverNonce, &client->channel.serverNonce);
+        UA_ChannelSecurityToken_deleteMembers(&client->channel->securityToken);
+        UA_ChannelSecurityToken_copy(&response.securityToken, &client->channel->securityToken);
+        UA_ByteString_deleteMembers(&client->channel->serverNonce);
+        UA_ByteString_copy(&response.serverNonce, &client->channel->serverNonce);
 
         if(renew)
             UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_SECURECHANNEL, "SecureChannel renewed");
@@ -462,7 +472,7 @@ static UA_StatusCode SessionHandshake(UA_Client *client) {
     UA_NodeId_copy(&client->authenticationToken, &request.requestHeader.authenticationToken);
     request.requestHeader.timestamp = UA_DateTime_now();
     request.requestHeader.timeoutHint = 10000;
-    UA_ByteString_copy(&client->channel.clientNonce, &request.clientNonce);
+    UA_ByteString_copy(&client->channel->clientNonce, &request.clientNonce);
     request.requestedSessionTimeout = 1200000;
     request.maxResponseMessageSize = UA_INT32_MAX;
 
@@ -496,7 +506,7 @@ static UA_StatusCode CloseSession(UA_Client *client) {
 }
 
 static UA_StatusCode CloseSecureChannel(UA_Client *client) {
-    UA_SecureChannel *channel = &client->channel;
+    UA_SecureChannel *channel = client->channel;
     UA_CloseSecureChannelRequest request;
     UA_CloseSecureChannelRequest_init(&request);
     request.requestHeader.requestHandle = ++client->requestHandle;
@@ -506,7 +516,7 @@ static UA_StatusCode CloseSecureChannel(UA_Client *client) {
 
     UA_SecureConversationMessageHeader msgHeader;
     msgHeader.messageHeader.messageTypeAndChunkType = UA_MESSAGETYPE_CLO + UA_CHUNKTYPE_FINAL;
-    msgHeader.secureChannelId = client->channel.securityToken.channelId;
+    msgHeader.secureChannelId = client->channel->securityToken.channelId;
 
     UA_SymmetricAlgorithmSecurityHeader symHeader;
     symHeader.tokenId = channel->securityToken.tokenId;
@@ -518,7 +528,7 @@ static UA_StatusCode CloseSecureChannel(UA_Client *client) {
     UA_NodeId typeId = UA_NODEID_NUMERIC(0, UA_NS0ID_CLOSESECURECHANNELREQUEST + UA_ENCODINGOFFSET_BINARY);
 
     UA_ByteString message;
-    UA_Connection *c = &client->connection;
+    UA_Connection *c = client->connection;
     UA_StatusCode retval = c->getSendBuffer(c, c->remoteConf.recvBufferSize, &message);
     if(retval != UA_STATUSCODE_GOOD)
         return retval;
@@ -536,11 +546,11 @@ static UA_StatusCode CloseSecureChannel(UA_Client *client) {
 
     if(retval == UA_STATUSCODE_GOOD) {
         message.length = msgHeader.messageHeader.messageSize;
-        retval = client->connection.send(&client->connection, &message);
+        retval = client->connection->send(client->connection, &message);
     } else {
-        client->connection.releaseSendBuffer(&client->connection, &message);
+        client->connection->releaseSendBuffer(client->connection, &message);
     }
-    client->connection.close(&client->connection);
+    client->connection->close(client->connection);
     return retval;
 }
 
@@ -555,9 +565,9 @@ UA_Client_getEndpoints(UA_Client *client, const char *serverUrl,
 
 
     UA_StatusCode retval = UA_STATUSCODE_GOOD;
-    client->connection = client->config.connectionFunc(UA_ConnectionConfig_standard, serverUrl,
+    *client->connection = client->config.connectionFunc(UA_ConnectionConfig_standard, serverUrl,
                                                        client->config.logger);
-    if(client->connection.state != UA_CONNECTION_OPENING) {
+    if(client->connection->state != UA_CONNECTION_OPENING) {
         retval = UA_STATUSCODE_BADCONNECTIONCLOSED;
         goto cleanup;
     }
@@ -568,7 +578,7 @@ UA_Client_getEndpoints(UA_Client *client, const char *serverUrl,
         goto cleanup;
     }
 
-    client->connection.localConf = client->config.localConnectionConfig;
+    client->connection->localConf = client->config.localConnectionConfig;
     retval = HelAckHandshake(client);
     if(retval == UA_STATUSCODE_GOOD)
         retval = SecureChannelHandshake(client, false);
@@ -601,8 +611,8 @@ UA_Client_connect(UA_Client *client, const char *endpointUrl) {
     }
 
     UA_StatusCode retval = UA_STATUSCODE_GOOD;
-    client->connection = client->config.connectionFunc(UA_ConnectionConfig_standard, endpointUrl, client->config.logger);
-    if(client->connection.state != UA_CONNECTION_OPENING) {
+    *client->connection = client->config.connectionFunc(UA_ConnectionConfig_standard, endpointUrl, client->config.logger);
+    if(client->connection->state != UA_CONNECTION_OPENING) {
         retval = UA_STATUSCODE_BADCONNECTIONCLOSED;
         goto cleanup;
     }
@@ -613,7 +623,7 @@ UA_Client_connect(UA_Client *client, const char *endpointUrl) {
         goto cleanup;
     }
 
-    client->connection.localConf = client->config.localConnectionConfig;
+    client->connection->localConf = client->config.localConnectionConfig;
     retval = HelAckHandshake(client);
     if(retval == UA_STATUSCODE_GOOD)
         retval = SecureChannelHandshake(client, false);
@@ -624,7 +634,7 @@ UA_Client_connect(UA_Client *client, const char *endpointUrl) {
     if(retval == UA_STATUSCODE_GOOD)
         retval = ActivateSession(client);
     if(retval == UA_STATUSCODE_GOOD) {
-        client->connection.state = UA_CONNECTION_ESTABLISHED;
+        client->connection->state = UA_CONNECTION_ESTABLISHED;
         client->state = UA_CLIENTSTATE_CONNECTED;
     } else {
         goto cleanup;
@@ -641,11 +651,11 @@ UA_StatusCode UA_Client_disconnect(UA_Client *client) {
         return UA_STATUSCODE_BADNOTCONNECTED;
     UA_StatusCode retval = UA_STATUSCODE_GOOD;
     /* Is a session established? */
-    if(client->channel.connection->state == UA_CONNECTION_ESTABLISHED &&
+    if(client->channel->connection->state == UA_CONNECTION_ESTABLISHED &&
        !UA_NodeId_equal(&client->authenticationToken, &UA_NODEID_NULL))
         retval = CloseSession(client);
     /* Is a secure channel established? */
-    if(client->channel.connection->state == UA_CONNECTION_ESTABLISHED)
+    if(client->channel->connection->state == UA_CONNECTION_ESTABLISHED)
         retval |= CloseSecureChannel(client);
     return retval;
 }
@@ -686,7 +696,7 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
     UA_UInt32 requestId = ++client->requestId;
     UA_LOG_DEBUG(client->config.logger, UA_LOGCATEGORY_CLIENT,
                  "Sending a request of type %i", requestType->typeId.identifier.numeric);
-    retval = UA_SecureChannel_sendBinaryMessage(&client->channel, requestId, request, requestType);
+    retval = UA_SecureChannel_sendBinaryMessage(client->channel, requestId, request, requestType);
     if(retval != UA_STATUSCODE_GOOD) {
         if(retval == UA_STATUSCODE_BADENCODINGLIMITSEXCEEDED)
             respHeader->serviceResult = UA_STATUSCODE_BADREQUESTTOOLARGE;
@@ -702,8 +712,8 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
     UA_ByteString_init(&reply);
     UA_Boolean realloced = false;
     do {
-        retval = client->connection.recv(&client->connection, &reply, client->config.timeout);
-        retval |= UA_Connection_completeMessages(&client->connection, &reply, &realloced);
+        retval = client->connection->recv(client->connection, &reply, client->config.timeout);
+        retval |= UA_Connection_completeMessages(client->connection, &reply, &realloced);
         if(retval != UA_STATUSCODE_GOOD) {
             respHeader->serviceResult = retval;
             client->state = UA_CLIENTSTATE_ERRORED;
@@ -726,6 +736,14 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
     if(retval != UA_STATUSCODE_GOOD)
         goto finish;
 
+    /* Does the sequence number match? */
+    retval = UA_SecureChannel_checkSequenceNumber(seqHeader.sequenceNumber, client->channel);
+    if (retval != UA_STATUSCODE_GOOD){
+        UA_LOG_INFO_CHANNEL(client->config.logger, client->channel,
+                            "The sequence number was not increased by one. Got %i, expected %i",
+                            seqHeader.sequenceNumber, client->channel->receiveSequenceNumber + 1);
+        goto finish;
+    }
     /* Todo: we need to demux responses since a publish responses may come at any time */
     if(!UA_NodeId_equal(&responseId, &expectedNodeId) || seqHeader.requestId != requestId) {
         if(responseId.identifier.numeric != UA_NS0ID_SERVICEFAULT + UA_ENCODINGOFFSET_BINARY) {
@@ -746,7 +764,7 @@ void __UA_Client_Service(UA_Client *client, const void *r, const UA_DataType *re
  finish:
     UA_SymmetricAlgorithmSecurityHeader_deleteMembers(&symHeader);
     if(!realloced)
-        client->connection.releaseRecvBuffer(&client->connection, &reply);
+        client->connection->releaseRecvBuffer(client->connection, &reply);
     else
         UA_ByteString_deleteMembers(&reply);
 
