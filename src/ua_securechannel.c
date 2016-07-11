@@ -199,7 +199,7 @@ UA_SecureChannel_sendChunk(UA_ChunkInfo *ci, UA_ByteString *dst, size_t offset) 
 
 UA_StatusCode
 UA_SecureChannel_sendBinaryMessage(UA_SecureChannel *channel, UA_UInt32 requestId, const void *content,
-                                   const UA_DataType *contentType) {
+                                   const UA_DataType *contentType, UA_UInt32 MessageType) {
     UA_Connection *connection = channel->connection;
     if(!connection)
         return UA_STATUSCODE_BADINTERNALERROR;
@@ -229,10 +229,24 @@ UA_SecureChannel_sendBinaryMessage(UA_SecureChannel *channel, UA_UInt32 requestI
     ci.final = false;
     ci.messageType = UA_MESSAGETYPE_MSG;
     ci.errorCode = UA_STATUSCODE_GOOD;
+
+    switch (MessageType)
+    	{
+    	case UA_RORTYPE_REQUEST:
+    		ci.messageType = UA_RORTYPE_REQUEST;
+		break;
+    	case UA_RORTYPE_RESPONSE:
+    		ci.messageType = UA_RORTYPE_RESPONSE;
+		break;
+    	default:
+		break;
+    	}
+    ci.messageType += UA_MESSAGETYPE_MSG;
+    ci.abort = false;
     if(typeId.identifier.numeric == 446 || typeId.identifier.numeric == 449)
-        ci.messageType = UA_MESSAGETYPE_OPN;
+        ci.messageType += UA_MESSAGETYPE_OPN;
     else if(typeId.identifier.numeric == 452 || typeId.identifier.numeric == 455)
-        ci.messageType = UA_MESSAGETYPE_CLO;
+        ci.messageType += UA_MESSAGETYPE_CLO;
     retval = UA_encodeBinary(content, contentType, (UA_exchangeEncodeBuffer)UA_SecureChannel_sendChunk,
                              &ci, &message, &messagePos);
 

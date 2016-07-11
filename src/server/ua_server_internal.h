@@ -12,6 +12,8 @@
 #define ANONYMOUS_POLICY "open62541-anonymous-policy"
 #define USERNAME_POLICY "open62541-username-policy"
 
+
+
 #ifdef UA_ENABLE_EXTERNAL_NAMESPACES
 /** Mapping of namespace-id and url to an external nodestore. For namespaces
     that have no mapping defined, the internal nodestore is used by default. */

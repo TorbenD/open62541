@@ -400,7 +400,11 @@ walkBrowsePath(UA_Server *server, UA_Session *session, const UA_Node *node, cons
     } else if(!elem->includeSubtypes) {
         reftypes = (UA_NodeId*)(uintptr_t)&elem->referenceTypeId; // ptr magic due to const cast
     } else {
+<<<<<<< HEAD
+        retval = findSubTypes(server->nodestore, &elem->referenceTypeId, &reftypes, &reftypes_count);
+=======
         retval = getTypeHierarchy(server->nodestore, &elem->referenceTypeId, &reftypes, &reftypes_count);
+>>>>>>> 09db90143cf489fecad65a4f6acac461171bda3d
         if(retval != UA_STATUSCODE_GOOD)
             return retval;
     }
@@ -465,6 +469,15 @@ void Service_TranslateBrowsePathsToNodeIds_single(UA_Server *server, UA_Session 
         return;
     }
         
+    //relativePath elements should not have an empty targetName
+    for(size_t i=0;i<path->relativePath.elementsSize;i++){
+        UA_QualifiedName *qname = &(path->relativePath.elements[i].targetName);
+        if(UA_QualifiedName_isNull(qname)){
+            result->statusCode = UA_STATUSCODE_BADBROWSENAMEINVALID;
+            return;
+        }
+    }
+
     size_t arraySize = 10;
     result->targets = UA_malloc(sizeof(UA_BrowsePathTarget) * arraySize);
     if(!result->targets) {
@@ -479,10 +492,12 @@ void Service_TranslateBrowsePathsToNodeIds_single(UA_Server *server, UA_Session 
         result->targets = NULL;
         return;
     }
+
     result->statusCode = walkBrowsePath(server, session, firstNode, &path->relativePath, 0,
                                         &result->targets, &arraySize, &result->targetsSize);
     if(result->targetsSize == 0 && result->statusCode == UA_STATUSCODE_GOOD)
         result->statusCode = UA_STATUSCODE_BADNOMATCH;
+
     if(result->statusCode != UA_STATUSCODE_GOOD) {
         UA_Array_delete(result->targets, result->targetsSize, &UA_TYPES[UA_TYPES_BROWSEPATHTARGET]);
         result->targets = NULL;

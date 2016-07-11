@@ -13,8 +13,25 @@ extern "C" {
 #include "ua_server.h"
 #include "ua_client.h"
 
+typedef struct {
+    UA_ConnectionConfig conf;
+    UA_UInt16 port;
+    UA_Logger logger; // Set during start
+
+    /* open sockets and connections */
+    UA_Int32 serversockfd;
+    size_t mappingsSize;
+    struct ConnectionMapping {
+        UA_Connection *connection;
+        UA_Int32 sockfd;
+    } *mappings;
+} ServerNetworkLayerTCP;
+
 UA_ServerNetworkLayer UA_EXPORT
 UA_ServerNetworkLayerTCP(UA_ConnectionConfig conf, UA_UInt16 port);
+
+UA_StatusCode UA_EXPORT
+ServerNetworkLayerTCP_add(ServerNetworkLayerTCP *layer, UA_Int32 newsockfd);
 
 UA_Connection UA_EXPORT
 UA_ClientConnectionTCP(UA_ConnectionConfig conf, const char *endpointUrl, UA_Logger logger);

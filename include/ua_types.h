@@ -332,12 +332,7 @@ typedef struct {
 
 UA_EXPORT extern const UA_NodeId UA_NODEID_NULL;
 
-static UA_INLINE UA_Boolean
-UA_NodeId_isNull(const UA_NodeId *p) {
-    return (p->namespaceIndex == 0 &&
-            p->identifierType == UA_NODEIDTYPE_NUMERIC &&
-            p->identifier.numeric == 0);
-}
+UA_Boolean UA_EXPORT UA_NodeId_isNull(const UA_NodeId *p);
 
 UA_Boolean UA_EXPORT UA_NodeId_equal(const UA_NodeId *n1, const UA_NodeId *n2);
 
@@ -439,6 +434,12 @@ typedef struct {
     UA_UInt16 namespaceIndex;
     UA_String name;
 } UA_QualifiedName;
+
+static UA_INLINE UA_Boolean
+UA_QualifiedName_isNull(const UA_QualifiedName *q) {
+    return (q->namespaceIndex == 0 &&
+            q->name.length == 0);
+}
 
 static UA_INLINE UA_QualifiedName
 UA_QUALIFIEDNAME(UA_UInt16 nsIndex, char *chars) {

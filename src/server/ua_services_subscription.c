@@ -125,7 +125,8 @@ setMonitoredItemSettings(UA_Server *server, UA_MonitoredItem *mon,
     UA_BOUNDEDVALUE_SETWBOUNDS(server->config.queueSizeLimits,
                                queueSize, mon->maxQueueSize);
     mon->discardOldest = discardOldest;
-    MonitoredItem_registerSampleJob(server, mon);
+    if(monitoringMode == UA_MONITORINGMODE_REPORTING)
+        MonitoredItem_registerSampleJob(server, mon);
 }
 
 static const UA_String binaryEncoding = {sizeof("Default Binary")-1, (UA_Byte*)"Default Binary"};
@@ -137,7 +138,7 @@ Service_CreateMonitoredItems_single(UA_Server *server, UA_Session *session, UA_S
     /* Check if the target exists */
     const UA_Node *target = UA_NodeStore_get(server->nodestore, &request->itemToMonitor.nodeId);
     if(!target) {
-        result->statusCode = UA_STATUSCODE_BADNODEIDINVALID;
+        result->statusCode = UA_STATUSCODE_BADNODEIDUNKNOWN;
         return;
     }
     // TODO: Check if the target node type has the requested attribute
@@ -262,10 +263,42 @@ void Service_ModifyMonitoredItems(UA_Server *server, UA_Session *session,
     response->resultsSize = request->itemsToModifySize;
 
     for(size_t i = 0; i < request->itemsToModifySize; i++)
-        Service_ModifyMonitoredItems_single(server, session, sub, &request->itemsToModify[i],
-                                            &response->results[i]);
+        Service_ModifyMonitoredItems_single(server, session, sub, &request->itemsToModify[i], &response->results[i]);
 
 }
+
+void Service_SetMonitoringMode(UA_Server *server, UA_Session *session,
+                               const UA_SetMonitoringModeRequest *request,
+                               UA_SetMonitoringModeResponse *response) {
+    UA_LOG_DEBUG_SESSION(server->config.logger, session, "Processing SetMonitoringMode");
+    UA_Subscription *sub = UA_Session_getSubscriptionByID(session, request->subscriptionId);
+    if(!sub) {
+        response->responseHeader.serviceResult = UA_STATUSCODE_BADSUBSCRIPTIONIDINVALID;
+        return;
+    }
+
+    if(request->monitoredItemIdsSize == 0) {
+        response->responseHeader.serviceResult = UA_STATUSCODE_BADNOTHINGTODO;
+        return;
+    }
+
+    response->results = UA_Array_new(request->monitoredItemIdsSize, &UA_TYPES[UA_TYPES_STATUSCODE]);
+    if(!response->results) {
+        response->responseHeader.serviceResult = UA_STATUSCODE_BADOUTOFMEMORY;
+        return;
+    }
+    response->resultsSize = request->monitoredItemIdsSize;
+
+    for(size_t i = 0; i < response->resultsSize; i++) {
+        UA_MonitoredItem *mon = UA_Subscription_getMonitoredItem(sub, request->monitoredItemIds[i]);
+        if(mon)
+            setMonitoredItemSettings(server, mon, request->monitoringMode, mon->clientHandle,
+                                     mon->samplingInterval, mon->maxQueueSize, mon->discardOldest);
+        else
+            response->results[i] = UA_STATUSCODE_BADMONITOREDITEMIDINVALID;
+    }
+}
+
 
 void
 Service_Publish(UA_Server *server, UA_Session *session,
@@ -278,7 +311,7 @@ Service_Publish(UA_Server *server, UA_Session *session,
         response.responseHeader.requestHandle = request->requestHeader.requestHandle;
         response.responseHeader.serviceResult = UA_STATUSCODE_BADNOSUBSCRIPTION;
         UA_SecureChannel_sendBinaryMessage(session->channel, requestId, &response,
-                                           &UA_TYPES[UA_TYPES_PUBLISHRESPONSE]);
+                                           &UA_TYPES[UA_TYPES_PUBLISHRESPONSE], UA_RORTYPE_RESPONSE);
         return;
     }
 
@@ -340,6 +373,12 @@ void Service_DeleteSubscriptions(UA_Server *server, UA_Session *session,
                                  const UA_DeleteSubscriptionsRequest *request,
                                  UA_DeleteSubscriptionsResponse *response) {
     UA_LOG_DEBUG_SESSION(server->config.logger, session, "Processing DeleteSubscriptionsRequest");
+
+    if(request->subscriptionIdsSize == 0){
+        response->responseHeader.serviceResult = UA_STATUSCODE_BADNOTHINGTODO;
+        return;
+    }
+
     response->results = UA_malloc(sizeof(UA_StatusCode) * request->subscriptionIdsSize);
     if(!response->results) {
         response->responseHeader.serviceResult = UA_STATUSCODE_BADOUTOFMEMORY;

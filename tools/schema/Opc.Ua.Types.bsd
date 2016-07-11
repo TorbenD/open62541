@@ -628,7 +628,7 @@
     <opc:Documentation>Closes a secure channel.</opc:Documentation>
     <opc:Field Name="ResponseHeader" TypeName="tns:ResponseHeader" />
   </opc:StructuredType>
-
+  
   <opc:StructuredType Name="SignedSoftwareCertificate" BaseType="ua:ExtensionObject">
     <opc:Documentation>A software certificate with a digital signature.</opc:Documentation>
     <opc:Field Name="CertificateData" TypeName="opc:ByteString" />
@@ -2390,5 +2390,12 @@
     <opc:EnumeratedValue Name="PercentOfEURange" Value="3" />
     <opc:EnumeratedValue Name="Unknown" Value="4" />
   </opc:EnumeratedType>
+  
+  <opc:StructuredType Name="ServentClientServerTransferDataType" BaseType="ua:ExtensionObject">
+	<opc:Documentation>Transfer done and inform about the relation.</opc:Documentation>
+	<opc:Field Name="Url" TypeName="opc:String" />
+	<opc:Field Name="ServerPort" TypeName="opc:UInt16" />
+	<opc:Field Name="ClientPort" TypeName="opc:UInt16" />
+  </opc:StructuredType>
 
 </opc:TypeDictionary>

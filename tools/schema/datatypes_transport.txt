@@ -1,4 +1,5 @@
 MessageType
+RoRType
 ChunkType
 TcpMessageHeader
 TcpHelloMessage
